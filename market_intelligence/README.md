@@ -1,11 +1,23 @@
 # Market Intelligence
 
-Cross-asset and market-structure dashboard covering major U.S. indices, sector ETFs, bonds, gold, oil, the dollar, volatility and selected risk indicators. The script computes performance and breadth measures and combines them with SPX put/call open-interest and U.S. CDS data when available.
+This directory is reserved for cross-asset market-monitoring and market-intelligence tools.
 
-Run:
+## Current status
 
-```bash
-python market_intelligence.py
-```
+No executable Python script is currently committed to this directory.
 
-Downloaded data are cached locally and are not committed to the repository.
+The module is therefore a placeholder in the current repository snapshot.
+
+## Intended scope
+
+Future tools may combine information such as:
+
+- major equity-index performance;
+- sector leadership;
+- bonds, commodities, currencies, and volatility;
+- market breadth;
+- options positioning and put/call measures;
+- credit-risk indicators;
+- cross-asset risk signals.
+
+Any implementation added here should document its exact data sources, calculations, outputs, and run instructions.
