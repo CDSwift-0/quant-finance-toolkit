@@ -1,40 +1,63 @@
 # Market Structure
 
-Experimental S&P 500 breadth research based on the position of individual constituents relative to rolling log-price regression channels.
+S&P 500 market-breadth research based on rolling log-price regression extremes.
 
-## Files
+The module is intentionally reduced to a single executable script: `market_breadth.py`. It replaces the previous multi-file workflow and has no graphical user interface.
 
-### `regression_largeur.py`
+## Method
 
-The script retrieves the current S&P 500 constituent list from Wikipedia, with a smaller hard-coded fallback universe if the web request fails. Historical adjusted prices are downloaded from Yahoo Finance and resampled to weekly observations.
+The script retrieves the current S&P 500 constituent list, downloads adjusted weekly prices from Yahoo Finance, and fits a rolling linear regression to each constituent's log-price series.
 
-For each stock, the model fits a rolling linear regression to log prices and measures the latest regression residual in standard-deviation units.
+For each valid stock, the latest regression residual is expressed in standard-deviation units. The script then measures:
 
-Default parameters:
-
-- start date: 1995-01-01;
-- rolling window: 500 weekly observations;
-- extreme threshold: ±1.5σ.
-
-The resulting breadth series contains:
-
-- the percentage of valid constituents above +1.5σ;
-- the percentage below −1.5σ;
-- the net difference between the two groups;
+- the share of constituents above the positive sigma threshold;
+- the share below the negative sigma threshold;
+- the net difference between those two groups;
 - the number of constituents with valid observations.
 
-Downloaded prices and calculated breadth data are cached in `.regression_cache/`.
+The rolling regressions are computed from vectorized rolling sums rather than repeated `numpy.polyfit` calls.
 
-### `lancer.py`
+## Default parameters
 
-This is a lightweight launcher that imports `main` from `dashboard_marche.py`.
+The default analysis starts in 1995, uses a 500-week rolling regression window, and defines an extreme observation as a residual beyond ±1.5 standard deviations.
 
-## Current status
+## Usage
 
-The market-structure module is experimental in the current repository snapshot. `dashboard_marche.py`, which is required by `lancer.py`, is not currently committed.
+```bash
+python market_structure/market_breadth.py
+```
 
-The computation logic for regression breadth is present in `regression_largeur.py`, but the plotting path should be treated as work in progress rather than a stable standalone interface.
+Force fresh Yahoo Finance data:
+
+```bash
+python market_structure/market_breadth.py --refresh
+```
+
+Change the rolling window and threshold:
+
+```bash
+python market_structure/market_breadth.py --window 500 --threshold 1.5
+```
+
+## Outputs
+
+The script creates exactly two PNG files next to the script:
+
+```text
+breadth_extremes.png
+breadth_net.png
+```
+
+`breadth_extremes.png` plots the percentage of valid S&P 500 constituents above and below the selected regression threshold.
+
+`breadth_net.png` plots the net balance, defined as the percentage above the positive threshold minus the percentage below the negative threshold.
+
+A temporary operating-system cache is used for repeated runs. Cache files are not stored in the repository directory.
 
 ## Dependencies
 
-The module uses `numpy`, `pandas`, `requests`, `yfinance`, and `matplotlib`.
+```bash
+pip install numpy pandas requests yfinance matplotlib lxml
+```
+
+The constituent list is sourced from Wikipedia and prices are sourced from Yahoo Finance. If the S&P 500 constituent request fails, the script falls back to a smaller hard-coded universe.
