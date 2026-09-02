@@ -1014,4 +1014,197 @@ class MarketIntelligenceDashboard(tk.Tk):
                         else: mm50 = float(clean.iloc[-1])
 
         breadth_df = self.data.get("breadth", pd.DataFrame())
-        participation = last(breadth_df.get("Breadth")) if isinstance(breadth_df, pd.DataFrame) and not breadt
+        participation = last(breadth_df.get("Breadth")) if isinstance(breadth_df, pd.DataFrame) and not breadth_df.empty else float("nan")
+        vix_df = self.data.get("vix_chart", pd.DataFrame())
+        vix = last(vix_df.get("VIX")) if isinstance(vix_df, pd.DataFrame) and not vix_df.empty else float("nan")
+
+        if not any(pd.isna(v) for v in [spy, mm20, mm50]) and spy > mm20 > mm50:
+            trend_label, trend_detail, trend_tone = "Haussière", "SPY > MM20 > MM50", self.colors["green"]
+        elif not any(pd.isna(v) for v in [spy, mm50]) and spy > mm50:
+            trend_label, trend_detail, trend_tone = "Positive", "SPY au-dessus de MM50", self.colors["green"]
+        elif not any(pd.isna(v) for v in [spy, mm20, mm50]) and spy < mm20 < mm50:
+            trend_label, trend_detail, trend_tone = "Baissière", "SPY < MM20 < MM50", self.colors["red"]
+        else:
+            trend_label, trend_detail, trend_tone = "Mixte", "Moyennes non alignées", self.colors["gold"]
+
+        if pd.isna(participation):
+            breadth_label, breadth_tone = "n.d.", self.colors["muted"]
+        elif participation >= 65:
+            breadth_label, breadth_tone = "Large", self.colors["green"]
+        elif participation <= 40:
+            breadth_label, breadth_tone = "Fragile", self.colors["red"]
+        else:
+            breadth_label, breadth_tone = "Intermédiaire", self.colors["gold"]
+
+        if pd.isna(vix):
+            vol_label, vol_tone = "n.d.", self.colors["muted"]
+        elif vix < 18:
+            vol_label, vol_tone = "Contenue", self.colors["green"]
+        elif vix >= 25:
+            vol_label, vol_tone = "Élevée", self.colors["red"]
+        else:
+            vol_label, vol_tone = "Normale", self.colors["gold"]
+
+        hero_notes = {
+            "Risque élevé": "Volatilité élevée : privilégier les confirmations par la participation.",
+            "Risk-on discipliné": "Performance, volatilité et participation restent constructives.",
+            "Marché sélectif": "La hausse manque de largeur : les leaders restent déterminants.",
+            "Rotation défensive": "Les secteurs défensifs reprennent du poids face aux cycliques.",
+            "Équilibre à confirmer": "Signaux mixtes : attendre confirmation par volatilité et participation.",
+        }
+        hero_note = hero_notes.get(summary["regime"], summary["note"])
+        options_regime = str(stats.get("regime", "n.d."))
+        options_short = {
+            "Protection élevée": "Protection ↑",
+            "Complacence relative": "Complacence",
+            "Équilibre SPX": "Équilibre",
+            "Signal indisponible": "n.d.",
+        }.get(options_regime, options_regime)
+
+        hero = tk.Frame(panel, bg=self._blend(self.colors["panel"], self.colors.get(f"{summary['tone']}_bg", self.colors["blue_bg"]), 0.55), highlightbackground=self.colors["line_soft"], highlightthickness=1)
+        hero.pack(fill="x", padx=12, pady=(4, 8))
+        tk.Frame(hero, bg=tone, width=5).pack(side="left", fill="y")
+        hero_inner = tk.Frame(hero, bg=hero.cget("bg"))
+        hero_inner.pack(fill="both", expand=True, padx=13, pady=10)
+        badge = tk.Label(hero_inner, text="RÉGIME ACTUEL", bg=tone, fg="white", font=("Avenir Next", 8, "bold"), padx=9, pady=4)
+        badge.pack(anchor="w")
+        tk.Label(hero_inner, text=summary["regime"], bg=hero_inner.cget("bg"), fg=self.colors["ink"], font=("Avenir Next", 20, "bold")).pack(anchor="w", pady=(6, 1))
+        tk.Label(hero_inner, text=hero_note, bg=hero_inner.cget("bg"), fg=self.colors["muted"], font=("Avenir Next", 9), justify="left", wraplength=500).pack(anchor="w")
+
+        signals = tk.Frame(panel, bg=self.colors["panel"])
+        signals.pack(fill="x", padx=10, pady=(0, 7))
+        for c in range(4):
+            signals.grid_columnconfigure(c, weight=1, uniform="signals")
+
+        signal_specs = [
+            ("TENDANCE", trend_label, trend_detail, trend_tone),
+            ("PARTICIPATION", breadth_label, fmt_pct(participation, 0, signed=False), breadth_tone),
+            ("VOLATILITÉ", vol_label, f"VIX {fmt_num(vix, 1)}", vol_tone),
+            ("OPTIONS", options_short, f"P/C {fmt_num(stats.get('ratio'), 2)} · P{fmt_num(stats.get('percentile'), 0)}", self.colors.get(stats.get("tone", "blue"), self.colors["blue"])),
+        ]
+        for idx, (label, value, detail, accent) in enumerate(signal_specs):
+            card = tk.Frame(signals, bg=self.colors["panel_alt"], highlightbackground=self.colors["line_soft"], highlightthickness=1)
+            card.grid(row=0, column=idx, sticky="nsew", padx=3)
+            tk.Frame(card, bg=accent, height=3).pack(fill="x")
+            tk.Label(card, text=label, bg=self.colors["panel_alt"], fg=self.colors["muted_light"], font=("Avenir Next", 10, "bold")).pack(anchor="w", padx=8, pady=(6, 1))
+            tk.Label(card, text=value, bg=self.colors["panel_alt"], fg=accent, font=("Avenir Next", 10, "bold"), wraplength=118, justify="left").pack(anchor="w", padx=8)
+            tk.Label(card, text=detail, bg=self.colors["panel_alt"], fg=self.colors["muted"], font=("Avenir Next", 8), wraplength=118, justify="left").pack(anchor="w", padx=8, pady=(1, 6))
+
+        lower = tk.Frame(panel, bg=self.colors["panel"])
+        lower.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        lower.grid_columnconfigure(0, weight=5)
+        lower.grid_columnconfigure(1, weight=3)
+        lower.grid_rowconfigure(0, weight=1)
+
+        trend_box = tk.Frame(lower, bg=self.colors["panel_alt"], highlightbackground=self.colors["line_soft"], highlightthickness=1)
+        trend_box.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        tk.Label(trend_box, text="TENDANCE S&P 500", bg=self.colors["panel_alt"], fg=self.colors["muted"], font=("Avenir Next", 10, "bold")).pack(anchor="w", padx=9, pady=(6, 0))
+        spy_canvas = tk.Canvas(trend_box, bg=self.colors["panel_alt"], height=110, highlightthickness=0)
+        spy_canvas.pack(fill="both", expand=True, padx=3, pady=(0, 3))
+        spy_canvas.bind("<Configure>", lambda _e: self._draw_line_chart(spy_canvas, self.data["price_chart"], [("SPY", self.colors["blue"]), ("MM20", self.colors["gold"]), ("MM50", self.colors["green"])], False))
+
+        leadership_box = tk.Frame(lower, bg=self.colors["panel_alt"], highlightbackground=self.colors["line_soft"], highlightthickness=1)
+        leadership_box.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        tk.Label(leadership_box, text="LEADERSHIP SECTORIEL", bg=self.colors["panel_alt"], fg=self.colors["muted"], font=("Avenir Next", 10, "bold")).pack(anchor="w", padx=10, pady=(8, 5))
+        tk.Label(leadership_box, text="Leader", bg=self.colors["panel_alt"], fg=self.colors["muted_light"], font=("Avenir Next", 10, "bold")).pack(anchor="w", padx=10)
+        best_text = str(summary["best_sector"]).replace("Consumer Discretionary", "Cons. Discretionary").replace("Consumer Staples", "Cons. Staples").replace("Communication", "Comm.")
+        tk.Label(leadership_box, text=best_text, bg=self.colors["panel_alt"], fg=self.colors["green"], font=("Avenir Next", 10, "bold"), wraplength=155, justify="left").pack(anchor="w", padx=10, pady=(1, 5))
+        tk.Label(leadership_box, text="Sous pression", bg=self.colors["panel_alt"], fg=self.colors["muted_light"], font=("Avenir Next", 10, "bold")).pack(anchor="w", padx=10)
+        worst_text = str(summary["worst_sector"]).replace("Consumer Discretionary", "Cons. Discretionary").replace("Consumer Staples", "Cons. Staples").replace("Communication", "Comm.")
+        tk.Label(leadership_box, text=worst_text, bg=self.colors["panel_alt"], fg=self.colors["red"], font=("Avenir Next", 10, "bold"), wraplength=155, justify="left").pack(anchor="w", padx=10, pady=(1, 7))
+        leadership = summary.get("leadership", float("nan"))
+        leadership_tone = self.colors["green"] if not pd.isna(leadership) and leadership >= 0 else self.colors["red"]
+        tk.Label(leadership_box, text=f"Cyc. – déf.  {fmt_pct(leadership)}", bg=self.colors["panel_alt"], fg=leadership_tone, font=("Avenir Next", 9, "bold")).pack(anchor="w", padx=10, pady=(0, 8))
+
+    def _draw_dual_axis_chart(
+        self,
+        canvas: tk.Canvas,
+        df: pd.DataFrame,
+        left_series: list[tuple[str, str]],
+        right_col: str,
+        right_label: str,
+        zones: Optional[list[tuple[float, float, str]]] = None,
+        hlines: Optional[list[float]] = None,
+        left_min: Optional[float] = None,
+        left_max: Optional[float] = None,
+        chart_key: str = "chart",
+    ) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 340)
+        height = max(canvas.winfo_height(), 155)
+        pad_left, pad_right, pad_top, pad_bottom = (46, 54, 26, 28) if width < 560 else (54, 64, 28, 32)
+        if df.empty or "Date" not in df:
+            return
+
+        plot_df = df.copy()
+        plot_df["Date"] = pd.to_datetime(plot_df["Date"], errors="coerce")
+        plot_df = plot_df.dropna(subset=["Date"])
+        if plot_df.empty:
+            return
+
+        visible_left = [(label, color) for label, color in left_series if self._series_is_visible(chart_key, label)]
+        right_visible = self._series_is_visible(chart_key, right_label)
+
+        left_values: list[float] = []
+        for col, _color in visible_left:
+            if col in plot_df:
+                left_values.extend(pd.to_numeric(plot_df[col], errors="coerce").dropna().tolist())
+        if not left_values:
+            for col, _color in left_series:
+                if col in plot_df:
+                    left_values.extend(pd.to_numeric(plot_df[col], errors="coerce").dropna().tolist())
+        if not left_values:
+            left_values = [0.0, 1.0]
+        left_low = min(left_values) if left_min is None else left_min
+        left_high = max(left_values) if left_max is None else left_max
+        if zones:
+            for z0, z1, _color in zones:
+                left_low = min(left_low, z0, z1)
+                left_high = max(left_high, z0, z1)
+        if hlines:
+            left_low = min(left_low, *hlines)
+            left_high = max(left_high, *hlines)
+        if math.isclose(left_low, left_high):
+            left_low -= 1
+            left_high += 1
+        pad = (left_high - left_low) * 0.08
+        left_low -= 0 if left_min is not None else pad
+        left_high += 0 if left_max is not None else pad
+
+        right_values = pd.to_numeric(plot_df.get(right_col, pd.Series(dtype=float)), errors="coerce").dropna()
+        has_right = not right_values.empty and right_visible
+        if has_right:
+            right_low = float(right_values.min())
+            right_high = float(right_values.max())
+            if math.isclose(right_low, right_high):
+                right_low -= 1
+                right_high += 1
+            right_pad = (right_high - right_low) * 0.08
+            right_low -= right_pad
+            right_high += right_pad
+        else:
+            right_low, right_high = 0.0, 1.0
+
+        plot_w = width - pad_left - pad_right
+        plot_h = height - pad_top - pad_bottom
+
+        def x_for(idx: int, count: int) -> float:
+            return pad_left + idx * plot_w / max(count - 1, 1)
+
+        def y_left(value: float) -> float:
+            return height - pad_bottom - ((value - left_low) / (left_high - left_low)) * plot_h
+
+        def y_right(value: float) -> float:
+            return height - pad_bottom - ((value - right_low) / (right_high - right_low)) * plot_h
+
+        canvas.create_rectangle(pad_left, pad_top, width - pad_right, height - pad_bottom, fill=self.colors["panel_alt"], outline=self.colors["line_soft"])
+        if zones:
+            for z0, z1, color in zones:
+                y0, y1 = y_left(z0), y_left(z1)
+                canvas.create_rectangle(pad_left, min(y0, y1), width - pad_right, max(y0, y1), fill=color, outline="")
+        for i in range(5):
+            y = pad_top + i * plot_h / 4
+            canvas.create_line(pad_left, y, width - pad_right, y, fill=self.colors["grid"], width=1)
+
+        dates = plot_df["Date"].dropna().reset_index(drop=True)
+        if not dates.e
