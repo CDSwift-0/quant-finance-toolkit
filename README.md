@@ -11,7 +11,7 @@ The repository is organized into independent modules. Each module has its own RE
 | `long_short` | Systematic equity and commodity long/short screening, plus a TradingView SMA-spread indicator | Active |
 | `sentiment_positioning` | CFTC institutional positioning and AAII investor sentiment | Active |
 | `valuation` | S&P 500 sector valuation and relative intrinsic-value analysis | Active |
-| `market_structure` | S&P 500 regression-breadth research | Experimental |
+| `market_structure` | S&P 500 regression-breadth analysis from rolling log-price regressions | Active |
 | `global_macro` | Reserved for macroeconomic and rates research | No executable script currently committed |
 | `machine_learning` | Reserved for machine-learning market models | No executable script currently committed |
 | `market_intelligence` | Reserved for cross-asset market monitoring | No executable script currently committed |
@@ -50,6 +50,14 @@ The folder also contains `tradingview_sma_spread.pine`, a Pine Script v6 indicat
 python sentiment_positioning/CFTC.py
 python sentiment_positioning/aaii.py
 ```
+
+### Market structure
+
+```bash
+python market_structure/market_breadth.py
+```
+
+The script generates `breadth_extremes.png` and `breadth_net.png` in the `market_structure` directory.
 
 ### Valuation
 
