@@ -1786,4 +1786,99 @@ class MarketIntelligenceDashboard(tk.Tk):
                 value = float(row["Performance"])
                 fill = self._perf_bg(value)
                 accent = self.colors["green"] if value >= 0 else self.colors["red"]
-                canvas.create_rectangle(tx, ty, tx + tile_w, ty + tile_h, fill=fill, outline=s
+                canvas.create_rectangle(tx, ty, tx + tile_w, ty + tile_h, fill=fill, outline=self.colors["line_soft"])
+                canvas.create_rectangle(tx, ty, tx + 4, ty + tile_h, fill=accent, outline=accent)
+                if category == "Secteurs" and tile_w < 125:
+                    canvas.create_text(tx + 10, ty + tile_h / 2, text=str(row["Ticker"]), anchor="w", fill=self.colors["ink"], font=("Avenir Next", 10, "bold"))
+                    canvas.create_text(tx + tile_w - 7, ty + tile_h / 2, text=fmt_pct(value), anchor="e", fill=accent, font=("Avenir Next", 10, "bold"))
+                else:
+                    canvas.create_text(tx + 12, ty + tile_h / 2 - 7, text=str(row["Ticker"]), anchor="w", fill=self.colors["ink"], font=("Avenir Next", 10, "bold"))
+                    name = str(row["Nom"])
+                    max_chars = 18
+                    if len(name) > max_chars:
+                        name = name[:max_chars - 1] + "…"
+                    detail = name
+                    if category in {"Indices", "Macro"} and "Valeur" in row and not pd.isna(row["Valeur"]):
+                        detail = f"{name} · {fmt_num(row['Valeur'], 2)}"
+                    canvas.create_text(tx + 12, ty + tile_h / 2 + 8, text=detail, anchor="w", fill=self.colors["muted"], font=("Avenir Next", 8))
+                    canvas.create_text(tx + tile_w - 9, ty + tile_h / 2, text=fmt_pct(value), anchor="e", fill=accent, font=("Avenir Next", 10, "bold"))
+
+    def _perf_bg(self, value: float, subtle: bool = False) -> str:
+        scale = 12 if subtle else 8
+        if value >= 0:
+            return self._blend(self.colors["panel_alt"], self.colors["green_bg"], min(abs(value) / scale, 1))
+        return self._blend(self.colors["panel_alt"], self.colors["red_bg"], min(abs(value) / scale, 1))
+
+    def _draw_corr(self, canvas: tk.Canvas, corr: pd.DataFrame) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 420)
+        height = max(canvas.winfo_height(), 260)
+        if corr.empty:
+            return
+        labels = [CROSS_ASSETS.get(col, col) for col in corr.columns]
+        n = len(labels)
+        pad_left, pad_top = 126, 34
+        size = min((width - pad_left - 18) / max(n, 1), (height - pad_top - 18) / max(n, 1))
+        for i, label in enumerate(labels):
+            canvas.create_text(pad_left - 10, pad_top + i * size + size / 2, text=label, anchor="e", fill=self.colors["muted"], font=("Avenir Next", 10, "bold"))
+            canvas.create_text(pad_left + i * size + size / 2, pad_top - 10, text=label[:8], anchor="s", fill=self.colors["muted"], font=("Avenir Next", 10, "bold"))
+        for r in range(n):
+            for c in range(n):
+                value = float(corr.iloc[r, c])
+                color = self._corr_bg(value)
+                x = pad_left + c * size
+                y = pad_top + r * size
+                canvas.create_rectangle(x, y, x + size - 2, y + size - 2, fill=color, outline=self.colors["panel_alt"])
+                canvas.create_text(x + size / 2, y + size / 2, text=f"{value:.2f}", fill=self.colors["ink"], font=("Avenir Next", 10, "bold"))
+
+    def _corr_bg(self, value: float) -> str:
+        if pd.isna(value):
+            return self.colors["panel"]
+        if value >= 0:
+            return self._blend(self.colors["panel_alt"], self.colors["gold_bg"], min(abs(value), 1))
+        return self._blend(self.colors["panel_alt"], self.colors["blue_bg"], min(abs(value), 1))
+
+    def _tree(self, parent: tk.Frame, df: pd.DataFrame, columns: list[str]) -> None:
+        tree = ttk.Treeview(parent, columns=columns, show="headings", height=max(8, min(len(df), 12)), style="Market.Treeview")
+        tree.pack(fill="both", expand=True, padx=12, pady=12)
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=130 if col != "Nom" else 260, anchor="e" if col == "Performance" else "w", stretch=True)
+        tree.tag_configure("even", background=self.colors["panel"])
+        tree.tag_configure("odd", background=self.colors["panel_alt"])
+        tree.tag_configure("positive", foreground=self.colors["green"])
+        tree.tag_configure("negative", foreground=self.colors["red"])
+        for index, (_, row) in enumerate(df.iterrows()):
+            values = [fmt_pct(row[col]) if col == "Performance" else str(row[col]) for col in columns]
+            tags = ["even" if index % 2 == 0 else "odd"]
+            try:
+                tags.append("positive" if float(row.get("Performance", 0)) >= 0 else "negative")
+            except Exception:
+                pass
+            tree.insert("", "end", values=values, tags=tuple(tags))
+
+    def _loading(self) -> None:
+        panel = tk.Frame(self.body, bg=self.colors["panel"], highlightbackground=self.colors["line_soft"], highlightthickness=1)
+        panel.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=4, pady=4)
+        tk.Label(panel, text="Chargement des données de marché", bg=self.colors["panel"], fg=self.colors["ink"], font=("Avenir Next", 18, "bold")).pack(expand=True)
+        tk.Label(panel, text="Prix, positionnement options et stress macro sont chargés en parallèle lorsque possible.", bg=self.colors["panel"], fg=self.colors["muted"], font=("Avenir Next", 10)).pack(pady=(0, 14))
+
+    def _error(self, message: str) -> None:
+        panel = tk.Frame(self.body, bg=self.colors["panel"], highlightbackground=self.colors["line_soft"], highlightthickness=1)
+        panel.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=4, pady=4)
+        tk.Label(panel, text="Impossible de construire le tableau", bg=self.colors["panel"], fg=self.colors["red"], font=("Avenir Next", 18, "bold")).pack(expand=True)
+        tk.Label(panel, text=message, bg=self.colors["panel"], fg=self.colors["muted"], wraplength=1000, justify="center", font=("Avenir Next", 10)).pack(pady=(0, 14))
+
+    def _clear(self, widget: tk.Widget) -> None:
+        for child in widget.winfo_children():
+            child.destroy()
+
+
+
+def main() -> None:
+    app = MarketIntelligenceDashboard()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    main()
