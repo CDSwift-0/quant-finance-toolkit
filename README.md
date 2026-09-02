@@ -14,7 +14,7 @@ The repository is organized into independent modules. Each module has its own RE
 | `market_structure` | S&P 500 regression-breadth analysis from rolling log-price regressions | Active |
 | `global_macro` | Reserved for macroeconomic and rates research | No executable script currently committed |
 | `machine_learning` | Reserved for machine-learning market models | No executable script currently committed |
-| `market_intelligence` | Reserved for cross-asset market monitoring | No executable script currently committed |
+| `market_intelligence` | Cross-asset market dashboard with volatility, options, credit stress and sector breadth | Active |
 
 ## Installation
 
@@ -58,6 +58,14 @@ python market_structure/market_breadth.py
 ```
 
 The script generates `breadth_extremes.png` and `breadth_net.png` in the `market_structure` directory.
+
+### Market intelligence
+
+```bash
+python market_intelligence/market_intelligence.py
+```
+
+The local dashboard combines cross-asset performance, VIX, SPX put/call open interest, MOVE, US sovereign CDS and a full-width S&P 500 sector-participation indicator based on distance from 50-day moving averages.
 
 ### Valuation
 
