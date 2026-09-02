@@ -1,24 +1,24 @@
 # Quant Finance Toolkit
 
-A collection of Python research tools for market analysis, macro monitoring, valuation, sentiment and positioning, market-regime classification, and systematic long/short screening.
+A collection of quantitative-finance research tools for systematic screening, market positioning, market structure, and valuation.
 
-The repository is organized as independent modules. Most tools can be run directly as desktop applications or standalone scripts.
+The repository is organized into independent modules. Each module has its own README describing the files that are actually present in the current repository snapshot.
 
-## Modules
+## Repository structure
 
-| Module | Description | Main entry point |
+| Module | Purpose | Current status |
 | --- | --- | --- |
-| `global_macro` | Fed Funds, CPI/core CPI, FedWatch probabilities, yield-curve and recession indicators | `taux.py` |
-| `market_intelligence` | Cross-asset performance, sector structure, market breadth, volatility, put/call and CDS monitoring | `market_intelligence.py` |
-| `market_structure` | S&P 500 breadth above the 200-day moving average and regression-channel extreme breadth | `lancer.py` |
-| `machine_learning` | Unsupervised market-regime classification using a Gaussian mixture model and transition probabilities | `ml.py` |
-| `sentiment_positioning` | AAII sentiment and CFTC institutional positioning dashboard | `SD.py` |
-| `valuation` | Sector-level S&P 500 valuation workflow combining holdings, financial data and DCF-style estimates | `DCF.py` |
-| `long_short` | Equity and commodity long/short screens plus a TradingView SMA-spread indicator | `mom.py`, `commo.py` |
+| `long_short` | Systematic equity and commodity long/short screening, plus a TradingView SMA-spread indicator | Active |
+| `sentiment_positioning` | CFTC institutional positioning and AAII investor sentiment | Active |
+| `valuation` | S&P 500 sector valuation and relative intrinsic-value analysis | Active |
+| `market_structure` | S&P 500 regression-breadth research | Experimental |
+| `global_macro` | Reserved for macroeconomic and rates research | No executable script currently committed |
+| `machine_learning` | Reserved for machine-learning market models | No executable script currently committed |
+| `market_intelligence` | Reserved for cross-asset market monitoring | No executable script currently committed |
 
 ## Installation
 
-Python 3.10+ is recommended.
+Python 3.10 or newer is recommended.
 
 ```bash
 python3 -m venv .venv
@@ -27,53 +27,54 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-On Windows, activate the environment with:
+On Windows:
 
 ```powershell
 .venv\Scripts\activate
 ```
 
-The graphical applications use Tkinter, which is included with many Python distributions. On some Linux systems it must be installed separately through the system package manager.
+## Main scripts
 
-## Running the tools
-
-From the repository root:
+### Long / short research
 
 ```bash
-python global_macro/taux.py
-python market_intelligence/market_intelligence.py
-python market_structure/lancer.py
-python machine_learning/ml.py
-python sentiment_positioning/SD.py
-python valuation/DCF.py
 python long_short/mom.py
 python long_short/commo.py
 ```
 
-The long/short folder also contains `tradingview_sma_spread.pine`, a Pine Script v6 indicator intended to be pasted into TradingView's Pine Editor.
+The folder also contains `tradingview_sma_spread.pine`, a Pine Script v6 indicator intended for TradingView's Pine Editor.
 
-## Optional valuation API key
-
-The valuation module can use Financial Modeling Prep as one of its external valuation sources. The key is optional because the script also contains fallback data sources.
-
-Copy `.env.example` to `.env` and add your key if you want to enable it:
+### Sentiment and positioning
 
 ```bash
-cp .env.example .env
+python sentiment_positioning/CFTC.py
+python sentiment_positioning/aaii.py
 ```
+
+### Valuation
+
+```bash
+python valuation/DCF.py
+```
+
+The valuation script produces a single chart named `sp500_sector_dcf_chart.PNG` in the `valuation` directory.
+
+## Optional API configuration
+
+The valuation module can use a Financial Modeling Prep API key when available. Copy `.env.example` to `.env` and add:
 
 ```text
 FMP_API_KEY=your_key_here
 ```
 
-Never commit the `.env` file.
+The `.env` file is excluded from version control and should never be committed.
 
 ## Data sources
 
-The tools rely on public or externally hosted market and macroeconomic data, including Yahoo Finance, FRED, the U.S. Bureau of Labor Statistics, CFTC public reporting, State Street ETF holdings, AAII pages, Truflation and other public web sources used by the individual modules. Availability and schemas may change over time.
+Depending on the module, the repository uses externally hosted data from sources including Yahoo Finance, CFTC Public Reporting, AAII, State Street SPDR holdings, Financial Modeling Prep, Alpha Spread, ValueInvesting.io, Wikipedia, and other public web sources referenced by the scripts.
 
-Local caches and generated outputs are intentionally excluded from version control. They are recreated when the scripts run.
+External APIs and web pages can change without notice, so data availability and parsing logic may require maintenance over time.
 
-## Notes
+## Disclaimer
 
-These projects are research and analytical tools. They are not intended to provide investment advice or guarantee trading performance. External data should be independently verified before being used for financial decisions.
+These tools are intended for research and analytical use only. They do not constitute investment advice, and externally sourced data should be independently verified before being used for financial decisions.
