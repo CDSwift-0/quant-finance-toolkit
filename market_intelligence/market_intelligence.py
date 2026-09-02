@@ -1584,4 +1584,206 @@ class MarketIntelligenceDashboard(tk.Tk):
         max_abs = max(1.0, float(work["Performance"].abs().max()))
         zero_x = left_x + left_w * 0.58
         row_h = max(18, min(27, left_h / max(len(work), 1)))
-        canv
+        canvas.create_line(zero_x, left_y, zero_x, min(height - 12, left_y + row_h * len(work)), fill=self.colors["line"], width=1)
+        for idx, (_, row) in enumerate(work.iterrows()):
+            y = left_y + idx * row_h + row_h / 2
+            if y > height - 10:
+                break
+            value = float(row["Performance"])
+            label = CROSS_ASSETS.get(str(row["Ticker"]), str(row["Ticker"]))
+            color = self.colors["green"] if value >= 0 else self.colors["red"]
+            bar_w = abs(value) / max_abs * (left_w * 0.34)
+            x0, x1 = (zero_x, zero_x + bar_w) if value >= 0 else (zero_x - bar_w, zero_x)
+            canvas.create_text(left_x, y, text=label[:14], anchor="w", fill=self.colors["ink"], font=("Avenir Next", 10, "bold"))
+            canvas.create_rectangle(x0, y - 4, x1, y + 4, fill=color, outline="")
+            canvas.create_text(left_x + left_w - 4, y, text=fmt_pct(value), anchor="e", fill=color, font=("Avenir Next", 10, "bold"))
+
+        right_x = left_x + left_w + 12
+        right_w = width - right_x - 12
+        metrics = [
+            ("SPY-TLT", spy - tlt if not pd.isna(spy) and not pd.isna(tlt) else float("nan")),
+            ("QQQ-IWM", qqq - iwm if not pd.isna(qqq) and not pd.isna(iwm) else float("nan")),
+            ("GLD-UUP", gld - uup if not pd.isna(gld) and not pd.isna(uup) else float("nan")),
+            ("USO", uso), ("UUP", uup), ("TLT", tlt),
+        ]
+        gap = 5
+        cell_w = (right_w - gap) / 2
+        cell_h = 35
+        for idx, (label, value) in enumerate(metrics):
+            row, col = divmod(idx, 2)
+            x = right_x + col * (cell_w + gap)
+            y = 52 + row * (cell_h + gap)
+            accent = self.colors["green"] if not pd.isna(value) and value >= 0 else self.colors["red"]
+            canvas.create_rectangle(x, y, x + cell_w, y + cell_h, fill=self.colors["panel"], outline=self.colors["line_soft"])
+            canvas.create_text(x + 7, y + 8, text=label, anchor="w", fill=self.colors["muted"], font=("Avenir Next", 7, "bold"))
+            canvas.create_text(x + cell_w - 7, y + 18, text=fmt_pct(value), anchor="e", fill=accent, font=("Avenir Next", 10, "bold"))
+
+        corr_assets = [t for t in ["QQQ", "IWM", "TLT", "GLD", "UUP", "USO"] if t in corr.columns and "SPY" in corr.index]
+        corr_y = 52 + 3 * (cell_h + gap) + 8
+        if corr_assets and corr_y + 42 <= height:
+            canvas.create_text(right_x, corr_y, text="CORR. AU S&P 500", anchor="nw", fill=self.colors["muted"], font=("Avenir Next", 7, "bold"))
+            cgap = 4
+            cw = (right_w - cgap * (len(corr_assets) - 1)) / len(corr_assets)
+            for idx, ticker in enumerate(corr_assets):
+                value = float(corr.loc["SPY", ticker])
+                x = right_x + idx * (cw + cgap)
+                y = corr_y + 15
+                canvas.create_rectangle(x, y, x + cw, y + 26, fill=self._corr_bg(value), outline=self.colors["line_soft"])
+                canvas.create_text(x + cw / 2, y + 8, text=ticker, anchor="center", fill=self.colors["ink"], font=("Avenir Next", 7, "bold"))
+                canvas.create_text(x + cw / 2, y + 19, text=f"{value:.2f}", anchor="center", fill=self.colors["muted"], font=("Avenir Next", 7, "bold"))
+
+    def _draw_line_chart(self, canvas: tk.Canvas, df: pd.DataFrame, series: list[tuple[str, str]], percent: bool, zones: Optional[list[tuple[float, Optional[float], str]]] = None, hlines: Optional[list[float]] = None, y_min: Optional[float] = None, y_max: Optional[float] = None) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 280)
+        height = max(canvas.winfo_height(), 90)
+        pad_x, pad_y = 34, 20
+        if df.empty or "Date" not in df:
+            return
+        plot_df = df.copy()
+        plot_df["Date"] = pd.to_datetime(plot_df["Date"], errors="coerce")
+        plot_df = plot_df.dropna(subset=["Date"])
+        values = []
+        for col, _color in series:
+            if col in plot_df:
+                values.extend(pd.to_numeric(plot_df[col], errors="coerce").dropna().tolist())
+        if not values:
+            return
+        low = min(values) if y_min is None else y_min
+        high = max(values) if y_max is None else y_max
+        if zones:
+            for z0, z1, _color in zones:
+                zone_high = z1 if z1 is not None else z0 + 0.35
+                low = min(low, z0, zone_high)
+                high = max(high, z0, zone_high)
+        if math.isclose(low, high):
+            low -= 1
+            high += 1
+        pad = (high - low) * 0.06
+        low -= 0 if y_min is not None else pad
+        high += 0 if y_max is not None else pad
+
+        def y_for(value: float) -> float:
+            return height - pad_y - ((value - low) / (high - low)) * (height - 2 * pad_y)
+
+        if zones:
+            for z0, z1, color in zones:
+                top = y_for(high if z1 is None else z1)
+                bottom = y_for(z0)
+                canvas.create_rectangle(pad_x, top, width - pad_x, bottom, fill=color, outline="")
+        for i in range(5):
+            y = pad_y + i * (height - 2 * pad_y) / 4
+            canvas.create_line(pad_x, y, width - pad_x, y, fill=self.colors["grid"], width=1)
+        if hlines:
+            for line in hlines:
+                y = y_for(line)
+                canvas.create_line(pad_x, y, width - pad_x, y, fill=self.colors["line"], width=1, dash=(5, 5))
+                label = fmt_pct(line, 0, signed=False) if percent else fmt_num(line, 0)
+                canvas.create_text(width - pad_x, y - 8, text=label, anchor="e", fill=self.colors["muted"], font=("Avenir Next", 10, "bold"))
+        legend_x = pad_x
+        for label, color in series:
+            if label not in plot_df:
+                continue
+            canvas.create_line(legend_x, 12, legend_x + 18, 12, fill=color, width=3)
+            canvas.create_text(legend_x + 24, 12, text=label, anchor="w", fill=self.colors["muted"], font=("Avenir Next", 10, "bold"))
+            legend_x += 92
+        n = len(plot_df)
+        for series_index, (col, color) in enumerate(series):
+            if col not in plot_df:
+                continue
+            clean = pd.to_numeric(plot_df[col], errors="coerce")
+            points: list[float] = []
+            for idx, value in enumerate(clean):
+                if pd.isna(value):
+                    continue
+                x = pad_x + idx * (width - 2 * pad_x) / max(n - 1, 1)
+                y = y_for(float(value))
+                points.extend([x, y])
+            if len(points) >= 4:
+                dash = (5, 5) if "MM50" in col else None
+                canvas.create_line(points, fill=color, width=2 if "MM" in col else 3, smooth=True, dash=dash)
+            if len(points) >= 2:
+                canvas.create_oval(points[-2] - 3, points[-1] - 3, points[-2] + 3, points[-1] + 3, fill=color, outline=color)
+                latest = clean.dropna()
+                if not latest.empty:
+                    last_value = float(latest.iloc[-1])
+                    label = fmt_pct(last_value, 1, signed=False) if percent else fmt_num(last_value, 2)
+                    offset = (series_index - (len(series) - 1) / 2) * 10
+                    canvas.create_text(points[-2] + 6, points[-1] + offset, text=label, anchor="w", fill=color, font=("Avenir Next", 10, "bold"))
+        dates = plot_df["Date"].dropna()
+        if not dates.empty:
+            canvas.create_text(pad_x, height - 8, text=dates.iloc[0].strftime("%Y-%m"), anchor="w", fill=self.colors["muted"], font=("Avenir Next", 10, "bold"))
+            canvas.create_text(width - pad_x, height - 8, text=dates.iloc[-1].strftime("%Y-%m"), anchor="e", fill=self.colors["muted"], font=("Avenir Next", 10, "bold"))
+
+    def _draw_bar_chart(self, canvas: tk.Canvas, df: pd.DataFrame, label_col: str, value_col: str) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 300)
+        height = max(canvas.winfo_height(), 180)
+        if df.empty or label_col not in df or value_col not in df:
+            return
+        show = df.sort_values(value_col, ascending=True).tail(12)
+        values = pd.to_numeric(show[value_col], errors="coerce").fillna(0)
+        max_abs = max(1.0, float(values.abs().max()))
+        pad_x, pad_y = 170, 24
+        zero_x = pad_x + (width - pad_x - 52) / 2
+        canvas.create_line(zero_x, pad_y, zero_x, height - pad_y, fill=self.colors["line"], width=1)
+        row_h = (height - 2 * pad_y) / max(len(show), 1)
+        for i, (_, row) in enumerate(show.iterrows()):
+            value = float(row[value_col])
+            y = pad_y + i * row_h + row_h / 2
+            bar_w = abs(value) / max_abs * ((width - pad_x - 68) / 2)
+            color = self.colors["green"] if value >= 0 else self.colors["red"]
+            x0 = zero_x if value >= 0 else zero_x - bar_w
+            x1 = zero_x + bar_w if value >= 0 else zero_x
+            canvas.create_text(12, y, text=str(row[label_col]), anchor="w", fill=self.colors["ink"], font=("Avenir Next", 10, "bold"))
+            canvas.create_rectangle(x0, y - 7, x1, y + 7, fill=color, outline="")
+            canvas.create_text(width - 12, y, text=fmt_pct(value), anchor="e", fill=color, font=("Avenir Next", 10, "bold"))
+
+    def _draw_heatmap(self, canvas: tk.Canvas, df: pd.DataFrame) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 470)
+        height = max(canvas.winfo_height(), 210)
+        if df.empty:
+            return
+        work = df.copy()
+        work["Category"] = work["Ticker"].map(lambda t: ASSETS.get(t, ("", "Autres"))[1])
+        work = work[work["Category"] != "Volatilité"].sort_values(["Category", "Performance"], ascending=[True, False])
+        categories = [cat for cat in ["Indices", "Secteurs", "Macro"] if cat in set(work["Category"])]
+        margin, gap = 14, 8
+        usable = width - 2 * margin - gap * max(len(categories) - 1, 0)
+        weights = {"Indices": 0.27, "Secteurs": 0.43, "Macro": 0.30}
+        widths = {cat: usable * weights.get(cat, 1 / max(len(categories), 1)) for cat in categories}
+
+        canvas.create_rectangle(0, 0, width, height, fill=self.colors["panel_alt"], outline="")
+        cursor_x = margin
+        for c_idx, category in enumerate(categories):
+            col_w = widths[category]
+            x = cursor_x
+            cursor_x += col_w + gap
+            rows = work[work["Category"] == category].copy()
+            avg = rows["Performance"].mean()
+            panel_color = self._perf_bg(float(avg), subtle=True)
+            canvas.create_rectangle(x, 14, x + col_w, height - 16, fill=self.colors["panel"], outline=self.colors["line_soft"])
+            canvas.create_rectangle(x, 14, x + col_w, 60, fill=panel_color, outline=self.colors["line_soft"])
+            canvas.create_text(x + 12, 28, text=category.upper(), anchor="w", fill=self.colors["ink"], font=("Avenir Next", 9, "bold"))
+            canvas.create_text(x + 12, 47, text=fmt_pct(avg), anchor="w", fill=self.colors["green"] if avg >= 0 else self.colors["red"], font=("Avenir Next", 10, "bold"))
+
+            top = 72
+            available_h = height - top - 30
+            if category == "Secteurs":
+                cols = 2
+            else:
+                cols = 1
+            tile_gap = 7
+            tile_w = (col_w - 24 - tile_gap * (cols - 1)) / cols
+            tile_rows = math.ceil(len(rows) / cols)
+            tile_h = min(40, max(18, (available_h - tile_gap * max(tile_rows - 1, 0)) / max(tile_rows, 1)))
+
+            for idx, (_, row) in enumerate(rows.iterrows()):
+                r = idx // cols
+                c = idx % cols
+                tx = x + 12 + c * (tile_w + tile_gap)
+                ty = top + r * (tile_h + tile_gap)
+                value = float(row["Performance"])
+                fill = self._perf_bg(value)
+                accent = self.colors["green"] if value >= 0 else self.colors["red"]
+                canvas.create_rectangle(tx, ty, tx + tile_w, ty + tile_h, fill=fill, outline=s
