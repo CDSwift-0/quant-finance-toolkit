@@ -1399,4 +1399,189 @@ class MarketIntelligenceDashboard(tk.Tk):
             x = metrics_x0 + idx * (cell_w + gap)
             canvas.create_rectangle(x, 10, x + cell_w, 66, fill=self.colors["panel"], outline=self.colors["line_soft"])
             canvas.create_rectangle(x, 10, x + cell_w, 14, fill=accent, outline=accent)
-            canvas.create_text(x + 10, 25, text=label, anchor="nw", fill=self.colo
+            canvas.create_text(x + 10, 25, text=label, anchor="nw", fill=self.colors["muted"], font=("Avenir Next", 8, "bold"))
+            canvas.create_text(x + 10, 43, text=value, anchor="nw", fill=accent, font=("Avenir Next", 13, "bold"))
+
+        pad_left, pad_right = 64, 34
+        chart_top = 112
+        sector_area_h = 170
+        chart_bottom = height - sector_area_h - 48
+        chart_h = max(210, chart_bottom - chart_top)
+        plot_w = width - pad_left - pad_right
+
+        def y_for(value: float) -> float:
+            return chart_bottom - (min(100.0, max(0.0, value)) / 100.0) * chart_h
+
+        canvas.create_rectangle(pad_left, chart_top, width - pad_right, chart_bottom, fill=self.colors["panel"], outline=self.colors["line_soft"])
+        canvas.create_rectangle(pad_left, y_for(100), width - pad_right, y_for(75), fill=self._blend(self.colors["panel"], self.colors["green_bg"], 0.55), outline="")
+        canvas.create_rectangle(pad_left, y_for(25), width - pad_right, y_for(0), fill=self._blend(self.colors["panel"], self.colors["red_bg"], 0.55), outline="")
+        for value in [0, 25, 50, 75, 100]:
+            y = y_for(value)
+            strong = value in {25, 50, 75}
+            canvas.create_line(pad_left, y, width - pad_right, y, fill=self.colors["line"] if strong else self.colors["grid"], width=1, dash=(5, 5) if strong else ())
+            canvas.create_text(pad_left - 12, y, text=f"{value}%", anchor="e", fill=self.colors["muted"], font=("Avenir Next", 9, "bold"))
+
+        dates = plot_df["Date"].reset_index(drop=True)
+        if n > 1:
+            if dates.iloc[0].year == dates.iloc[-1].year:
+                mark_count = 5
+                mark_idx = np.linspace(0, n - 1, mark_count, dtype=int)
+                marks = [(int(i), dates.iloc[int(i)].strftime("%b")) for i in mark_idx]
+            else:
+                mark_count = 6 if very_dense_mode else 7 if dense_mode else min(8, max(4, int(plot_w // 160)))
+                mark_idx = np.unique(np.linspace(0, n - 1, mark_count, dtype=int))
+                marks = [(int(i), dates.iloc[int(i)].strftime("%Y")) for i in mark_idx]
+                # Évite deux libellés identiques sur les horizons longs.
+                dedup = []
+                seen = set()
+                for item in marks:
+                    if item[1] not in seen or item[0] == n - 1:
+                        dedup.append(item); seen.add(item[1])
+                marks = dedup
+            for idx, label in marks:
+                x = pad_left + idx * plot_w / max(n - 1, 1)
+                canvas.create_line(x, chart_top, x, chart_bottom, fill=self.colors["grid_soft"], width=1)
+                canvas.create_text(x, chart_bottom + 18, text=str(label), anchor="center", fill=self.colors["muted"], font=("Avenir Next", 9, "bold"))
+
+        series_specs = [
+            ("Breadth", "Score MM50", self.colors["blue"], 3, (), True),
+            ("RawAbove", "% secteurs > MM50", self.colors["gold"], 2, (5, 4), not dense_mode),
+            ("Benchmark", "S&P 500 normalisé", self.colors["green"], 2, (3, 5), not very_dense_mode),
+        ]
+        legend_x = pad_left
+        for col, label, color, _line_w, dash, default_visible in series_specs:
+            if col not in plot_df:
+                continue
+            visible = self._series_is_visible("breadth", label, default_visible)
+            tag = f"breadth_legend_{col}"
+            active = color if visible else self.colors["muted_light"]
+            legend_w = 150 if label != "% secteurs > MM50" else 165
+            canvas.create_rectangle(legend_x - 5, 76, legend_x + legend_w, 103, fill=self.colors["panel_alt"], outline="", tags=(tag,))
+            canvas.create_line(legend_x, 89, legend_x + 22, 89, fill=active, width=3 if visible else 2, dash=dash if visible else (3, 3), tags=(tag,))
+            canvas.create_text(legend_x + 29, 89, text=label, anchor="w", fill=self.colors["muted"] if visible else self.colors["muted_light"], font=("Avenir Next", 9, "bold"), tags=(tag,))
+            canvas.tag_bind(tag, "<Button-1>", lambda _e, series_label=label, d=default_visible: self._redraw_breadth_after_toggle(canvas, series_label, df, states, d))
+            legend_x += legend_w + 18
+
+        # Sur 5–10 ans, on réduit le nombre de points réellement dessinés à la résolution utile du canevas.
+        max_render_points = max(360, int(plot_w * 0.72))
+        render_step = max(1, math.ceil(n / max_render_points))
+        render_indices = list(range(0, n, render_step))
+        if render_indices[-1] != n - 1:
+            render_indices.append(n - 1)
+
+        for col, label, color, line_w, dash, default_visible in series_specs:
+            if col not in plot_df or not self._series_is_visible("breadth", label, default_visible):
+                continue
+            clean = pd.to_numeric(plot_df[col], errors="coerce")
+            points: list[float] = []
+            for idx in render_indices:
+                value = clean.iloc[idx]
+                if pd.isna(value):
+                    continue
+                x = pad_left + idx * plot_w / max(n - 1, 1)
+                points.extend([x, y_for(float(value))])
+            if len(points) >= 4:
+                canvas.create_line(points, fill=color, width=line_w, smooth=False, dash=dash)
+            if len(points) >= 2:
+                canvas.create_oval(points[-2] - 4, points[-1] - 4, points[-2] + 4, points[-1] + 4, fill=color, outline=self.colors["panel"], width=1)
+
+        section_top = chart_bottom + 45
+        canvas.create_text(pad_left, section_top, text="ÉTAT ACTUEL DES SECTEURS", anchor="nw", fill=self.colors["ink"], font=("Avenir Next", 10, "bold"))
+        canvas.create_text(width - pad_right, section_top, text="écart à la MM50", anchor="ne", fill=self.colors["muted"], font=("Avenir Next", 9))
+        if states is not None and not states.empty:
+            state_rows = states.copy()
+            state_rows["Distance"] = pd.to_numeric(state_rows["Distance"], errors="coerce")
+            state_rows = state_rows.dropna(subset=["Distance"]).sort_values("Distance", ascending=False).reset_index(drop=True)
+            cols, rows = 6, 2
+            card_gap_x, card_gap_y = 8, 8
+            cards_top = section_top + 27
+            card_w = (plot_w - card_gap_x * (cols - 1)) / cols
+            card_h = 52
+            max_abs_dist = max(1.0, float(state_rows["Distance"].abs().max()))
+            for idx, state in state_rows.head(cols * rows).iterrows():
+                r, c = divmod(idx, cols)
+                x = pad_left + c * (card_w + card_gap_x)
+                y = cards_top + r * (card_h + card_gap_y)
+                dist = float(state["Distance"])
+                above = bool(state.get("Above"))
+                accent = self.colors["green"] if above else self.colors["red"]
+                fill = self._blend(self.colors["panel"], self.colors["green_bg"] if above else self.colors["red_bg"], 0.34)
+                canvas.create_rectangle(x, y, x + card_w, y + card_h, fill=fill, outline=self.colors["line_soft"])
+                canvas.create_rectangle(x, y, x + 4, y + card_h, fill=accent, outline=accent)
+                canvas.create_text(x + 10, y + 10, text=str(state.get("Ticker", "")), anchor="nw", fill=self.colors["ink"], font=("Avenir Next", 10, "bold"))
+                name = str(state.get("Nom", ""))
+                if len(name) > 15:
+                    name = name[:14] + "…"
+                canvas.create_text(x + 10, y + 30, text=name, anchor="nw", fill=self.colors["muted"], font=("Avenir Next", 8))
+                canvas.create_text(x + card_w - 9, y + 10, text=fmt_pct(dist, 1), anchor="ne", fill=accent, font=("Avenir Next", 10, "bold"))
+                bar_x0 = x + card_w * 0.58
+                bar_x1 = x + card_w - 9
+                bar_y = y + 35
+                canvas.create_line(bar_x0, bar_y, bar_x1, bar_y, fill=self.colors["line"], width=3)
+                bar_len = (bar_x1 - bar_x0) * min(abs(dist) / max_abs_dist, 1)
+                canvas.create_line(bar_x0, bar_y, bar_x0 + bar_len, bar_y, fill=accent, width=3)
+
+        def show_crosshair(event: tk.Event) -> None:
+            canvas.delete("crosshair")
+            if event.x < pad_left or event.x > width - pad_right or event.y < chart_top or event.y > chart_bottom:
+                return
+            idx = int(round((event.x - pad_left) / max(plot_w, 1) * max(n - 1, 1)))
+            idx = max(0, min(n - 1, idx))
+            row = plot_df.iloc[idx]
+            x = pad_left + idx * plot_w / max(n - 1, 1)
+            canvas.create_line(x, chart_top, x, chart_bottom, fill=self.colors["muted_light"], width=1, tags="crosshair")
+            items = [pd.to_datetime(row["Date"]).strftime("%d.%m.%Y"), f"score {fmt_pct(row['Breadth'], 1, signed=False)}"]
+            if "RawAbove" in row and not pd.isna(row["RawAbove"]):
+                items.append(f"> MM50 {fmt_pct(row['RawAbove'], 0, signed=False)}")
+            if "AvgDistance" in row and not pd.isna(row["AvgDistance"]):
+                items.append(f"écart {fmt_pct(row['AvgDistance'], 1)}")
+            tooltip = "  ·  ".join(items)
+            tw = min(width - 2 * pad_left, max(315, len(tooltip) * 6.0))
+            tx = min(max(pad_left + 8, x + 12), width - pad_right - tw - 8)
+            ty = chart_top + 10
+            canvas.create_rectangle(tx, ty, tx + tw, ty + 34, fill=self.colors["panel"], outline=self.colors["line"], tags="crosshair")
+            canvas.create_text(tx + 10, ty + 17, text=tooltip, anchor="w", fill=self.colors["ink"], font=("Avenir Next", 9, "bold"), tags="crosshair")
+
+        canvas.bind("<Motion>", show_crosshair)
+        canvas.bind("<Leave>", lambda _e: canvas.delete("crosshair"))
+
+    def _redraw_breadth_after_toggle(self, canvas: tk.Canvas, label: str, df: pd.DataFrame, states: pd.DataFrame, default_visible: bool = True) -> None:
+        self._toggle_series("breadth", label, default_visible)
+        self._draw_breadth_chart(canvas, df, states)
+
+    def _draw_cross_asset_dashboard(self, canvas: tk.Canvas, df: pd.DataFrame, corr: pd.DataFrame) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 420)
+        height = max(canvas.winfo_height(), 220)
+        canvas.create_rectangle(0, 0, width, height, fill=self.colors["panel_alt"], outline="")
+        if df.empty or "Ticker" not in df or "Performance" not in df:
+            return
+
+        work = df.copy()
+        work["Performance"] = pd.to_numeric(work["Performance"], errors="coerce")
+        work = work.dropna(subset=["Performance"]).sort_values("Performance", ascending=False)
+        values = work.set_index("Ticker")["Performance"].to_dict()
+        spy, tlt = values.get("SPY", float("nan")), values.get("TLT", float("nan"))
+        qqq, iwm = values.get("QQQ", float("nan")), values.get("IWM", float("nan"))
+        gld, uup = values.get("GLD", float("nan")), values.get("UUP", float("nan"))
+        uso = values.get("USO", float("nan"))
+
+        if not pd.isna(spy) and not pd.isna(tlt) and spy - tlt > 5:
+            regime, note, tone = "Risk-on confirmé", "Actions > duration", self.colors["green"]
+        elif not pd.isna(gld) and not pd.isna(spy) and gld - spy > 3:
+            regime, note, tone = "Recherche de protection", "Or > actions", self.colors["gold"]
+        elif not pd.isna(uup) and uup > 2 and not pd.isna(spy) and spy < 0:
+            regime, note, tone = "Stress dollar", "USD ferme / actions faibles", self.colors["red"]
+        else:
+            regime, note, tone = "Confirmation mixte", "Signaux cross-asset partagés", self.colors["blue"]
+
+        canvas.create_text(14, 10, text=regime, anchor="nw", fill=tone, font=("Avenir Next", 15, "bold"))
+        canvas.create_text(14, 31, text=note, anchor="nw", fill=self.colors["muted"], font=("Avenir Next", 10, "bold"))
+
+        left_x, left_y = 14, 56
+        left_w = width * 0.46
+        left_h = height - 68
+        max_abs = max(1.0, float(work["Performance"].abs().max()))
+        zero_x = left_x + left_w * 0.58
+        row_h = max(18, min(27, left_h / max(len(work), 1)))
+        canv
