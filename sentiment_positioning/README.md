@@ -1,69 +1,69 @@
 # Sentiment & Positioning
 
-Ce dossier regroupe deux outils Python consacrés au sentiment de marché et au positionnement des investisseurs sur les actions américaines.
+Research tools for U.S. equity-market sentiment and institutional futures positioning.
 
-## Fichiers
+## Files
 
-### CFTC.py
+### `CFTC.py`
 
-Télécharge directement les données publiques **CFTC Traders in Financial Futures (TFF) — Futures Only** pour l'E-mini S&P 500 et analyse le positionnement des **Asset Managers / investisseurs institutionnels**.
+Downloads public CFTC Traders in Financial Futures (TFF) Futures Only data for the E-mini S&P 500 and analyzes Asset Manager positioning.
 
-Le script calcule notamment :
+The script uses:
 
-- les positions longues, courtes et de spreading
-- la position nette des Asset Managers
-- la position nette en pourcentage de l'Open Interest
-- une EMA sur 26 semaines
-- un z-score glissant sur 52 semaines
-- le percentile du positionnement sur environ 3 ans
-- les variations sur 1 et 4 semaines
-- la médiane historique
+- Asset Manager long positions;
+- Asset Manager short positions;
+- Asset Manager spreading positions;
+- total open interest.
 
-Il génère un seul fichier :
+It calculates:
 
-`institutional_net_pct_open_interest.png`
+- net Asset Manager positioning as long minus short;
+- net positioning as a percentage of open interest;
+- a 26-week exponential moving average;
+- one-week and four-week changes;
+- a rolling 52-week z-score;
+- a three-year percentile;
+- the historical median.
 
-Le graphique présente l'historique du positionnement institutionnel ainsi qu'un panneau de synthèse du dernier rapport CFTC.
+The script produces one file in the same directory:
 
-### aaii.py
-
-Télécharge la page de résultats du **AAII Sentiment Survey**, détecte automatiquement le tableau contenant les données de sentiment, normalise les colonnes et convertit les dates et pourcentages lorsque cela est possible.
-
-Le script génère :
-
-`aaii_sentiment_from_html.csv`
-
-Ce fichier contient les données historiques disponibles du sondage AAII, notamment les proportions d'investisseurs bullish, neutral et bearish lorsque ces colonnes sont présentes dans la source.
-
-## Installation
-
-Python 3.10 ou plus récent est recommandé.
-
-```bash
-pip install requests pandas matplotlib lxml
+```text
+institutional_net_pct_open_interest.png
 ```
 
-## Utilisation
+The chart combines the historical net-positioning series with a compact summary of the latest CFTC report.
 
-Pour générer le graphique de positionnement CFTC :
+Run:
 
 ```bash
 python CFTC.py
 ```
 
-Pour récupérer les données AAII :
+### `aaii.py`
+
+Downloads the AAII Sentiment Survey results page and extracts the HTML table containing investor-sentiment data.
+
+The script automatically searches for a table containing date, bullish, and bearish fields, normalizes column names, converts dates, and converts percentage-like values to numeric form when possible.
+
+The cleaned dataset is exported as:
+
+```text
+aaii_sentiment_from_html.csv
+```
+
+Run:
 
 ```bash
 python aaii.py
 ```
 
-Les deux scripts nécessitent une connexion Internet.
+## Dependencies
 
-## Sources
+The scripts use `requests`, `pandas`, `matplotlib`, and an HTML parser supported by `pandas.read_html` such as `lxml`.
 
-Les données proviennent des sources publiques suivantes :
+## Data sources
 
 - U.S. Commodity Futures Trading Commission — CFTC Public Reporting
 - American Association of Individual Investors — AAII Sentiment Survey
 
-Les structures des sources externes peuvent évoluer et nécessiter une adaptation du code si leurs API ou pages HTML changent.
+Both scripts depend on external data structures that may change over time.
