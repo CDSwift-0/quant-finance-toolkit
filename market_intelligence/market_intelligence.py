@@ -833,4 +833,185 @@ class MarketIntelligenceDashboard(tk.Tk):
             self._error(str(payload))
             return
         self.status.set("À jour")
-    
+        self.data = payload
+        self._render()
+
+    def _start_spinner(self) -> None:
+        self.spinner_angle = 0
+        def animate() -> None:
+            self.spinner.delete("all")
+            for i in range(8):
+                color = self._blend(self.colors["line"], self.colors["blue"], i / 7)
+                self.spinner.create_arc(4, 4, 20, 20, start=self.spinner_angle + i * 32, extent=18, style="arc", width=2, outline=color)
+            self.spinner_angle = (self.spinner_angle + 20) % 360
+            self.spinner_job = self.after(55, animate)
+        animate()
+
+    def _stop_spinner(self) -> None:
+        if self.spinner_job is not None:
+            self.after_cancel(self.spinner_job)
+            self.spinner_job = None
+        self.spinner.delete("all")
+
+    def _blend(self, a: str, b: str, t: float) -> str:
+        def rgb(value: str) -> tuple[int, int, int]:
+            value = value.lstrip("#")
+            return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+        ar, ag, ab = rgb(a); br, bg, bb = rgb(b)
+        return f"#{int(ar + (br-ar)*t):02x}{int(ag + (bg-ag)*t):02x}{int(ab + (bb-ab)*t):02x}"
+
+    def _series_key(self, chart_key: str, label: str) -> str:
+        return f"{chart_key}:{label}"
+
+    def _series_is_visible(self, chart_key: str, label: str, default: bool = True) -> bool:
+        return self.series_visibility.get(self._series_key(chart_key, label), default)
+
+    def _toggle_series(self, chart_key: str, label: str, default: bool = True) -> None:
+        key = self._series_key(chart_key, label)
+        self.series_visibility[key] = not self.series_visibility.get(key, default)
+
+    def _period_control(self, parent: tk.Widget) -> tk.Frame:
+        outer = tk.Frame(parent, bg=self.colors["panel"], highlightbackground=self.colors["line_soft"], highlightthickness=1, height=94)
+        outer.pack_propagate(False)
+
+        left = tk.Frame(outer, bg=self.colors["panel"], width=220)
+        left.pack(side="left", fill="y", padx=(18, 8), pady=14)
+        left.pack_propagate(False)
+        tk.Label(left, text="HORIZON D’ANALYSE", bg=self.colors["panel"], fg=self.colors["ink"], font=("Avenir Next", 11, "bold")).pack(anchor="w")
+        tk.Label(left, text="Choisissez la profondeur historique", bg=self.colors["panel"], fg=self.colors["muted"], font=("Avenir Next", 9)).pack(anchor="w", pady=(4, 0))
+
+        segment = tk.Frame(outer, bg=self.colors["panel_soft"], highlightbackground=self.colors["line_soft"], highlightthickness=1)
+        segment.pack(side="left", fill="both", expand=True, padx=8, pady=15)
+        self.period_buttons = {}
+        for label in PERIODS:
+            selected = self.period.get() == label
+            button = tk.Button(
+                segment, text=label, command=lambda value=label: self._set_period(value),
+                bg=self.colors["ink"] if selected else self.colors["panel_soft"],
+                fg="white" if selected else self.colors["ink_soft"],
+                activebackground=self.colors["ink_soft"] if selected else self.colors["line_soft"],
+                activeforeground="white" if selected else self.colors["ink"],
+                borderwidth=0, padx=15, pady=10, cursor="hand2", font=("Avenir Next", 10, "bold")
+            )
+            button.pack(side="left", fill="both", expand=True, padx=2, pady=2)
+            self.period_buttons[label] = button
+
+        info = tk.Frame(outer, bg=self.colors["panel"], width=245)
+        info.pack(side="right", fill="y", padx=(10, 18), pady=14)
+        info.pack_propagate(False)
+        tk.Label(info, text="PLAGE AFFICHÉE", bg=self.colors["panel"], fg=self.colors["muted_light"], font=("Avenir Next", 10, "bold")).pack(anchor="e")
+        tk.Label(info, textvariable=self.range_text, bg=self.colors["panel"], fg=self.colors["ink"], font=("Avenir Next", 10, "bold")).pack(anchor="e", pady=(3, 0))
+        tk.Label(info, textvariable=self.session_text, bg=self.colors["panel"], fg=self.colors["muted"], font=("Avenir Next", 8)).pack(anchor="e", pady=(2, 0))
+        return outer
+
+    def _set_period(self, value: str) -> None:
+        if self.period.get() == value:
+            return
+        self.period.set(value)
+        for label, button in getattr(self, "period_buttons", {}).items():
+            selected = label == value
+            button.configure(bg=self.colors["ink"] if selected else self.colors["panel_soft"], fg="white" if selected else self.colors["ink_soft"])
+        self.refresh(force_sources=False)
+
+    def _render(self) -> None:
+        if not self.data:
+            return
+        for idx, (label, value) in enumerate(self.data["kpis"].items()):
+            self._kpi_card(idx, label, value)
+
+        # Tous les modules réguliers ont exactement la même hauteur ; le dernier seul est plus grand.
+        for row in range(4):
+            self.body.grid_rowconfigure(row, minsize=self.regular_panel_height + 12, weight=0)
+        self.body.grid_rowconfigure(4, minsize=self.breadth_panel_height + 12, weight=0)
+
+        date_source = self.data.get("price_chart", pd.DataFrame())
+        if isinstance(date_source, pd.DataFrame) and not date_source.empty and "Date" in date_source:
+            dates = pd.to_datetime(date_source["Date"], errors="coerce").dropna()
+            if not dates.empty:
+                self.range_text.set(f"{dates.iloc[0].strftime('%d.%m.%Y')}  →  {dates.iloc[-1].strftime('%d.%m.%Y')}")
+                self.session_text.set(f"{len(dates):,} séances de marché".replace(",", " "))
+
+        # Rangée 1 : synthèse du régime + carte de marché.
+        self._summary_panel(0, 0, 1)
+        map_canvas = self._chart_panel("Carte de marché", "Performance par bloc", 0, 1, 1)
+        map_canvas.bind("<Configure>", lambda _e: self._draw_heatmap(map_canvas, self.data["all_perf"]))
+
+        # Rangée 2 : confirmation cross-asset + volatilité actions.
+        cross_canvas = self._chart_panel("Cross-asset", "Performance relative et corrélations au S&P 500", 1, 0, 1)
+        cross_canvas.bind("<Configure>", lambda _e: self._draw_cross_asset_dashboard(cross_canvas, self.data["cross_perf"], self.data["corr"]))
+
+        vix = self._chart_panel("VIX / S&P 500", "Volatilité actions", 1, 1, 1)
+        vix.bind("<Configure>", lambda _e: self._draw_dual_axis_chart(vix, self.data["vix_chart"], [("VIX", self.colors["gold"])], "SPY", "S&P 500", zones=[(25, 35, self.colors["red_bg"]), (15, 18, self.colors["green_bg"])], hlines=[18, 25, 35], left_min=8, chart_key="vix"))
+
+        # Rangée 3 : options + appétit cyclique/défensif.
+        pc = self._chart_panel("SPX Put / Call OI", "Ratio, moyenne 20 jours et S&P 500", 2, 0, 1)
+        pc.bind("<Configure>", lambda _e: self._draw_dual_axis_chart(pc, self.data["put_call_chart"], [("Ratio", self.colors["gold"]), ("MM20", self.colors["blue"])], "SPY", "S&P 500", hlines=[1.45, 1.80, 2.15], left_min=1.15, chart_key="put_call"))
+
+        style = self._chart_panel("XLY / XLP", "Cycliques face aux défensifs", 2, 1, 1)
+        style.bind("<Configure>", lambda _e: self._draw_dual_axis_chart(style, self.data["style_chart"], [("XLY/XLP", self.colors["gold"])], "SPY", "S&P 500", chart_key="style_ratio"))
+
+        # Rangée 4 : stress obligataire et souverain.
+        move = self._chart_panel("MOVE Index", "Volatilité obligataire", 3, 0, 1)
+        move.bind("<Configure>", lambda _e: self._draw_dual_axis_chart(move, self.data["move_chart"], [("MOVE", self.colors["gold"]), ("MM20", self.colors["blue"])], "SPY", "S&P 500", hlines=[80, 100, 120], left_min=40, chart_key="move"))
+
+        cds = self._chart_panel("CDS US 5 ans", "Stress de crédit souverain", 3, 1, 1)
+        cds.bind("<Configure>", lambda _e: self._draw_dual_axis_chart(cds, self.data["cds_chart"], [("US_CDS_5Y", self.colors["gold"])], "SPY", "S&P 500", hlines=[20, 35, 50], left_min=0, chart_key="cds"))
+
+        # Dernier module : volontairement plus grand et sur toute la largeur.
+        breadth = self._chart_panel("Participation sectorielle", "Largeur du marché · MM50 · état des 11 secteurs", 4, 0, 2)
+        breadth.bind("<Configure>", lambda _e: self._draw_breadth_chart(breadth, self.data["breadth"], self.data["sector_state"]))
+
+        source_state = self.data.get("source_state", {})
+        updated = self.data.get("updated_at")
+        stamp = pd.to_datetime(updated).strftime("%Y-%m-%d %H:%M") if updated is not None else ""
+        self.footer.configure(text=f"Mis à jour {stamp}  ·  Yahoo Finance : {source_state.get('prices','?')}  ·  Options SPX : {source_state.get('put_call','?')}  ·  CDS US : {source_state.get('cds','?')}  ·  Cache : {CACHE_DIR}")
+        self.after_idle(self._sync_scroll_region)
+
+    def _kpi_card(self, index: int, label: str, value: str) -> None:
+        card = tk.Frame(self.kpi_grid, bg=self.colors["panel"], highlightbackground=self.colors["line_soft"], highlightthickness=1)
+        card.grid(row=0, column=index, sticky="nsew", padx=3, pady=0)
+        accent = self.colors["red"] if label == "VIX" else self.colors["gold"] if label == "SPX OI P/C" else self.colors["green"] if label in {"S&P 500", "Nasdaq", "Participation"} else self.colors["blue"]
+        tk.Frame(card, bg=accent, width=3).pack(side="left", fill="y")
+        inner = tk.Frame(card, bg=self.colors["panel"])
+        inner.pack(fill="both", expand=True, padx=9, pady=7)
+        tk.Label(inner, text=label.upper(), bg=self.colors["panel"], fg=self.colors["muted"], font=("Avenir Next", 10, "bold")).pack(anchor="w")
+        tk.Label(inner, text=value, bg=self.colors["panel"], fg=self.colors["ink"], font=("Avenir Next", 17, "bold")).pack(anchor="w", pady=(2, 0))
+
+    def _panel_frame(self, title: str, subtitle: str, row: int, col: int, colspan: int, rowspan: int = 1) -> tk.Frame:
+        fixed_h = self.breadth_panel_height if row == 4 else self.regular_panel_height
+        panel = tk.Frame(self.body, bg=self.colors["panel"], highlightbackground=self.colors["line_soft"], highlightthickness=1, height=fixed_h)
+        panel.grid(row=row, column=col, columnspan=colspan, rowspan=rowspan, sticky="nsew", padx=6, pady=6)
+        panel.grid_propagate(False)
+        panel.pack_propagate(False)
+        head = tk.Frame(panel, bg=self.colors["panel"], height=46)
+        head.pack(fill="x", padx=14, pady=(9, 4))
+        head.pack_propagate(False)
+        tk.Label(head, text=title, bg=self.colors["panel"], fg=self.colors["ink"], font=("Avenir Next", 13, "bold")).pack(side="left", anchor="w")
+        tk.Label(head, text=subtitle, bg=self.colors["panel"], fg=self.colors["muted"], font=("Avenir Next", 9)).pack(side="right", anchor="e")
+        return panel
+
+    def _chart_panel(self, title: str, subtitle: str, row: int, col: int, colspan: int, rowspan: int = 1) -> tk.Canvas:
+        panel = self._panel_frame(title, subtitle, row, col, colspan, rowspan)
+        canvas = tk.Canvas(panel, bg=self.colors["panel_alt"], highlightthickness=0)
+        canvas.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        return canvas
+
+    def _summary_panel(self, row: int, col: int, colspan: int) -> None:
+        panel = self._panel_frame("Lecture de marché", "Synthèse multi-signal", row, col, colspan)
+        summary = self.data["summary"]
+        stats = self.data["put_call"]
+        tone = self.colors.get(summary["tone"], self.colors["blue"])
+
+        price = self.data.get("price_chart", pd.DataFrame()).copy()
+        spy = mm20 = mm50 = float("nan")
+        if not price.empty:
+            for key in ["SPY", "MM20", "MM50"]:
+                if key in price:
+                    clean = pd.to_numeric(price[key], errors="coerce").dropna()
+                    if not clean.empty:
+                        if key == "SPY": spy = float(clean.iloc[-1])
+                        elif key == "MM20": mm20 = float(clean.iloc[-1])
+                        else: mm50 = float(clean.iloc[-1])
+
+        breadth_df = self.data.get("breadth", pd.DataFrame())
+        participation = last(breadth_df.get("Breadth")) if isinstance(breadth_df, pd.DataFrame) and not breadt
