@@ -12,7 +12,7 @@ The repository is organized into independent modules. Each module has its own RE
 | `sentiment_positioning` | CFTC institutional positioning and AAII investor sentiment | Active |
 | `valuation` | S&P 500 sector valuation and relative intrinsic-value analysis | Active |
 | `market_structure` | S&P 500 regression-breadth analysis from rolling log-price regressions | Active |
-| `global_macro` | Reserved for macroeconomic and rates research | No executable script currently committed |
+| `global_macro` | US rates, inflation, yield-curve and recession dashboard | Active |
 | `machine_learning` | Reserved for machine-learning market models | No executable script currently committed |
 | `market_intelligence` | Cross-asset market dashboard with volatility, options, credit stress and sector breadth | Active |
 
@@ -59,6 +59,14 @@ python market_structure/market_breadth.py
 
 The script generates `breadth_extremes.png` and `breadth_net.png` in the `market_structure` directory.
 
+### Global macro
+
+```bash
+python global_macro/taux.py
+```
+
+The desktop dashboard tracks Fed Funds, headline and core CPI, PCE inflation, the 10Y–2Y yield-curve spread, a recession-probability series, an ex-post real-rate proxy and their 12-month dynamics. It loads cached observations immediately, then refreshes the individual series independently from public sources.
+
 ### Market intelligence
 
 ```bash
@@ -87,7 +95,7 @@ The `.env` file is excluded from version control and should never be committed.
 
 ## Data sources
 
-Depending on the module, the repository uses externally hosted data from sources including Yahoo Finance, CFTC Public Reporting, AAII, State Street SPDR holdings, Financial Modeling Prep, Alpha Spread, ValueInvesting.io, Wikipedia, and other public web sources referenced by the scripts.
+Depending on the module, the repository uses externally hosted data from sources including Yahoo Finance, CFTC Public Reporting, AAII, State Street SPDR holdings, FRED, DBnomics, Financial Modeling Prep, Alpha Spread, ValueInvesting.io, Wikipedia, and other public web sources referenced by the scripts.
 
 External APIs and web pages can change without notice, so data availability and parsing logic may require maintenance over time.
 
