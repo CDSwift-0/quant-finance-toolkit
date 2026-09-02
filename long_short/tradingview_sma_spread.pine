@@ -1,0 +1,216 @@
+//@version=6
+indicator(" ", shorttitle=" ", overlay=false, scale=scale.right, precision=2)
+
+showMain = input.bool(true, "Show main curve")
+showMA = input.bool(true, "Show 10-day MA")
+showSigma15 = input.bool(true, "Show -1.5σ")
+showSigma2 = input.bool(false, "Show -2σ")
+
+filterLen = input.int(5, "Zero-lag filter", minval=3)
+fastLen = input.int(5, "Fast structure", minval=3)
+slowLen = input.int(12, "Slow structure", minval=5)
+noiseLen = input.int(63, "Noise period", minval=20)
+extremeLen = input.int(20, "Extreme lookback", minval=5)
+colorSmoothLen = input.int(4, "Color transition", minval=1, maxval=10)
+
+projection = input.float(1.5, "Forward projection", minval=0.5, maxval=3.0, step=0.25)
+reversalLevel = input.float(0.66, "Reversal threshold", minval=0.40, maxval=0.90, step=0.01)
+dominance = input.float(0.15, "Signal dominance", minval=0.0, maxval=0.50, step=0.01)
+minRegimeBars = input.int(3, "Minimum regime length", minval=1)
+
+maLen = 10
+referenceLen = 252 * 5
+
+sma21 = ta.sma(close, 21)
+sma200 = ta.sma(close, 200)
+
+spreadRatio = sma21 / sma200
+spread = (spreadRatio - 1.0) * 100.0
+
+lagRaw = math.floor((filterLen - 1) / 2.0)
+lag = math.max(1, int(lagRaw))
+
+laggedSpread = spread[lag]
+zeroLagCorrection = spread - laggedSpread
+zeroLagInput = spread + zeroLagCorrection
+trendLine = ta.ema(zeroLagInput, filterLen)
+
+fastFit = ta.linreg(trendLine, fastLen, 0)
+slowFit = ta.linreg(trendLine, slowLen, 0)
+
+fastSlope = fastFit - fastFit[1]
+slowSlope = slowFit - slowFit[1]
+
+acceleration = fastSlope - fastSlope[1]
+jerk = acceleration - acceleration[1]
+
+trendChange = ta.change(trendLine)
+noise = ta.stdev(trendChange, noiseLen)
+safeNoise = math.max(noise, 0.000001)
+
+nFast = fastSlope / safeNoise
+nSlow = slowSlope / safeNoise
+nAccel = acceleration / safeNoise
+nJerk = jerk / safeNoise
+
+slopeGap = nFast - nSlow
+
+projectionAccel = projection * nAccel
+projectionSquared = projection * projection
+projectionJerk = 0.25 * projectionSquared * nJerk
+projectedSlope = nFast + projectionAccel + projectionJerk
+
+recentHigh = ta.highest(trendLine, extremeLen)
+recentLow = ta.lowest(trendLine, extremeLen)
+
+dropFromHigh = (recentHigh - trendLine) / safeNoise
+riseFromLow = (trendLine - recentLow) / safeNoise
+
+clamp01(x) =>
+    math.max(0.0, math.min(1.0, x))
+
+bearLead = clamp01(-projectedSlope / 0.60)
+bearAccel = clamp01(-nAccel / 0.80)
+bearGap = clamp01(-slopeGap / 0.80)
+bearMove = clamp01(dropFromHigh)
+bearSlope = clamp01(-nFast / 0.60)
+
+bullLead = clamp01(projectedSlope / 0.60)
+bullAccel = clamp01(nAccel / 0.80)
+bullGap = clamp01(slopeGap / 0.80)
+bullMove = clamp01(riseFromLow)
+bullSlope = clamp01(nFast / 0.60)
+
+bearScore = 0.35 * bearLead + 0.20 * bearAccel + 0.15 * bearGap + 0.15 * bearMove + 0.15 * bearSlope
+bullScore = 0.35 * bullLead + 0.20 * bullAccel + 0.15 * bullGap + 0.15 * bullMove + 0.15 * bullSlope
+
+var int regime = 0
+var int lastChange = na
+
+if regime == 0 and not na(nSlow)
+    if nSlow >= 0
+        regime := 1
+    else
+        regime := -1
+    lastChange := bar_index
+
+barsInRegime = 10000
+
+if not na(lastChange)
+    barsInRegime := bar_index - lastChange
+
+bearDominance = bearScore - bullScore
+bullDominance = bullScore - bearScore
+
+bearishReversal = false
+bullishReversal = false
+
+if regime == 1
+    if barsInRegime >= minRegimeBars and bearScore >= reversalLevel and bearDominance >= dominance
+        bearishReversal := true
+
+if regime == -1
+    if barsInRegime >= minRegimeBars and bullScore >= reversalLevel and bullDominance >= dominance
+        bullishReversal := true
+
+if bearishReversal
+    regime := -1
+    lastChange := bar_index
+
+if bullishReversal
+    regime := 1
+    lastChange := bar_index
+
+bullColor = color.rgb(0, 210, 65)
+bearColor = color.rgb(245, 25, 40)
+neutralColor = color.rgb(145, 145, 145)
+
+rawBias = bullScore - bearScore
+smoothBias = ta.ema(rawBias, colorSmoothLen)
+
+biasStrength = clamp01(math.abs(smoothBias) / reversalLevel)
+
+aligned = false
+
+if smoothBias > 0 and trendLine >= 0
+    aligned := true
+
+if smoothBias < 0 and trendLine <= 0
+    aligned := true
+
+structuralStrength = aligned ? 1.0 : 0.62
+colorStrength = biasStrength * structuralStrength
+
+color lineColor = neutralColor
+
+if smoothBias > 0
+    lineColor := color.from_gradient(colorStrength, 0.0, 1.0, neutralColor, bullColor)
+
+if smoothBias < 0
+    lineColor := color.from_gradient(colorStrength, 0.0, 1.0, neutralColor, bearColor)
+
+indicatorMA = ta.sma(trendLine, maLen)
+
+referenceMean = ta.sma(trendLine, referenceLen)
+referenceSigma = ta.stdev(trendLine, referenceLen)
+
+lower15Sigma = referenceMean - 1.5 * referenceSigma
+lower2Sigma = referenceMean - 2.0 * referenceSigma
+
+var line lower15Line = na
+var line lower2Line = na
+
+if barstate.islast
+    if showSigma15 and not na(referenceSigma)
+        if na(lower15Line)
+            lower15Line := line.new(bar_index - 1, lower15Sigma, bar_index, lower15Sigma, extend=extend.both, color=color.rgb(80, 80, 80), width=2)
+        else
+            line.set_xy1(lower15Line, bar_index - 1, lower15Sigma)
+            line.set_xy2(lower15Line, bar_index, lower15Sigma)
+    else
+        if not na(lower15Line)
+            line.delete(lower15Line)
+            lower15Line := na
+
+    if showSigma2 and not na(referenceSigma)
+        if na(lower2Line)
+            lower2Line := line.new(bar_index - 1, lower2Sigma, bar_index, lower2Sigma, extend=extend.both, color=color.rgb(25, 25, 25), width=2)
+        else
+            line.set_xy1(lower2Line, bar_index - 1, lower2Sigma)
+            line.set_xy2(lower2Line, bar_index, lower2Sigma)
+    else
+        if not na(lower2Line)
+            line.delete(lower2Line)
+            lower2Line := na
+
+bgcolor(color.white)
+
+plot(
+    showMain ? trendLine : na,
+    title="",
+    color=lineColor,
+    linewidth=3,
+    display=display.pane
+)
+
+plot(
+    showMain ? trendLine : na,
+    title="",
+    color=lineColor,
+    display=display.price_scale
+)
+
+plot(
+    showMA ? indicatorMA : na,
+    title="",
+    color=color.new(color.black, 15),
+    linewidth=2
+)
+
+hline(
+    0,
+    "",
+    color=color.new(color.black, 35),
+    linestyle=hline.style_dotted,
+    linewidth=1
+)

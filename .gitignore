@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Tool caches
+**/.cache/
+**/.yfinance-cache/
+**/.market_intelligence_cache/
+**/.mm200_reg_cache/
+**/.regression_cache/
+**/.sentiment_cache/
+*.pkl
+
+# Generated outputs
+**/Resultats/
+**/output/
+**/outputs_sp500_sector_dcf/
+positions_finales_*.csv
+sentiment_positioning/aaii_sentiment_from_html.csv
+
+# Logs and temporary files
+*.log
+*.tmp
