@@ -21,7 +21,7 @@ From the repository root:
 
 ```bash
 python3 -m pip install -r requirements.txt
-python3 global_macro/taux.py
+python3 07_global_macro/taux.py
 ```
 
 The program uses Tkinter for the interface and Matplotlib for the charts. Tkinter is included with many Python installations but may need to be installed separately on some Linux distributions.

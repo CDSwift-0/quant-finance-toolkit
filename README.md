@@ -8,13 +8,13 @@ The repository is organized into independent modules. Each module has its own RE
 
 | Module | Purpose | Current status |
 | --- | --- | --- |
-| `long_short` | Systematic equity and commodity long/short screening, plus a TradingView SMA-spread indicator | Active |
-| `sentiment_positioning` | CFTC institutional positioning and AAII investor sentiment | Active |
-| `valuation` | S&P 500 sector valuation and relative intrinsic-value analysis | Active |
-| `market_structure` | S&P 500 regression-breadth analysis from rolling log-price regressions | Active |
-| `global_macro` | US rates, inflation, yield-curve and recession dashboard | Active |
-| `machine_learning` | Reserved for machine-learning market models | No executable script currently committed |
-| `market_intelligence` | Cross-asset market dashboard with volatility, options, credit stress and sector breadth | Active |
+| `01_market_intelligence` | Cross-asset market dashboard with volatility, options, credit stress and sector breadth | Active |
+| `02_sentiment_positioning` | CFTC institutional positioning and AAII investor sentiment | Active |
+| `03_long_short` | Systematic equity and commodity long/short screening, plus a TradingView SMA-spread indicator | Active |
+| `04_valuation` | S&P 500 sector valuation and relative intrinsic-value analysis | Active |
+| `05_market_structure` | S&P 500 regression-breadth analysis from rolling log-price regressions | Active |
+| `06_machine_learning` | Reserved for machine-learning market models | No executable script currently committed |
+| `07_global_macro` | US rates, inflation, yield-curve and recession dashboard | Active |
 
 ## Installation
 
@@ -38,8 +38,8 @@ On Windows:
 ### Long / short research
 
 ```bash
-python long_short/mom.py
-python long_short/commo.py
+python 03_long_short/mom.py
+python 03_long_short/commo.py
 ```
 
 The folder also contains `tradingview_sma_spread.pine`, a Pine Script v6 indicator intended for TradingView's Pine Editor.
@@ -47,22 +47,22 @@ The folder also contains `tradingview_sma_spread.pine`, a Pine Script v6 indicat
 ### Sentiment and positioning
 
 ```bash
-python sentiment_positioning/CFTC.py
-python sentiment_positioning/aaii.py
+python 02_sentiment_positioning/CFTC.py
+python 02_sentiment_positioning/aaii.py
 ```
 
 ### Market structure
 
 ```bash
-python market_structure/market_breadth.py
+python 05_market_structure/market_breadth.py
 ```
 
-The script generates `breadth_extremes.png` and `breadth_net.png` in the `market_structure` directory.
+The script generates `breadth_extremes.png` and `breadth_net.png` in the `05_market_structure` directory.
 
 ### Global macro
 
 ```bash
-python global_macro/taux.py
+python 07_global_macro/taux.py
 ```
 
 The desktop dashboard tracks Fed Funds, headline and core CPI, PCE inflation, the 10Y–2Y yield-curve spread, a recession-probability series, an ex-post real-rate proxy and their 12-month dynamics. It loads cached observations immediately, then refreshes the individual series independently from public sources.
@@ -70,7 +70,7 @@ The desktop dashboard tracks Fed Funds, headline and core CPI, PCE inflation, th
 ### Market intelligence
 
 ```bash
-python market_intelligence/market_intelligence.py
+python 01_market_intelligence/market_intelligence.py
 ```
 
 The local dashboard combines cross-asset performance, VIX, SPX put/call open interest, MOVE, US sovereign CDS and a full-width S&P 500 sector-participation indicator based on distance from 50-day moving averages.
@@ -78,14 +78,14 @@ The local dashboard combines cross-asset performance, VIX, SPX put/call open int
 ### Valuation
 
 ```bash
-python valuation/DCF.py
+python 04_valuation/DCF.py
 ```
 
-The valuation script produces a single chart named `sp500_sector_dcf_chart.PNG` in the `valuation` directory.
+The valuation script produces a single chart named `sp500_sector_dcf_chart.PNG` in the `04_valuation` directory.
 
 ## Optional API configuration
 
-The valuation module can use a Financial Modeling Prep API key when available. Copy `.env.example` to `.env` and add:
+The valuation module can use a Financial Modeling Prep API key when available. Create a `.env` file in the repository root and add:
 
 ```text
 FMP_API_KEY=your_key_here

@@ -313,7 +313,7 @@ The main Python dependencies used by this module are `numpy`, `pandas`, `request
 From the repository root:
 
 ```bash
-python market_intelligence/market_intelligence.py
+python 01_market_intelligence/market_intelligence.py
 ```
 
 The application opens as a local desktop window; it does not start a web server.

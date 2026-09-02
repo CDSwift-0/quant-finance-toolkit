@@ -29,7 +29,7 @@ venv/
 **/output/
 **/outputs_sp500_sector_dcf/
 positions_finales_*.csv
-sentiment_positioning/aaii_sentiment_from_html.csv
+02_sentiment_positioning/aaii_sentiment_from_html.csv
 
 # Logs and temporary files
 *.log

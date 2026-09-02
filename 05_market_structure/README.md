@@ -24,19 +24,19 @@ The default analysis starts in 1995, uses a 500-week rolling regression window, 
 ## Usage
 
 ```bash
-python market_structure/market_breadth.py
+python 05_market_structure/market_breadth.py
 ```
 
 Force fresh Yahoo Finance data:
 
 ```bash
-python market_structure/market_breadth.py --refresh
+python 05_market_structure/market_breadth.py --refresh
 ```
 
 Change the rolling window and threshold:
 
 ```bash
-python market_structure/market_breadth.py --window 500 --threshold 1.5
+python 05_market_structure/market_breadth.py --window 500 --threshold 1.5
 ```
 
 ## Outputs
