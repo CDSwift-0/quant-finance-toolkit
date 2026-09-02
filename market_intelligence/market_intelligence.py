@@ -585,4 +585,252 @@ def build_market_data(period: str, force_sources: bool = False) -> dict[str, Any
         tone = "blue"
 
     corr_cols = [ticker for ticker in CROSS_ASSETS if ticker in prices.columns]
-    returns = prices[corr_cols].pct_chang
+    returns = prices[corr_cols].pct_change(fill_method=None).dropna(how="all") if corr_cols else pd.DataFrame()
+    corr = returns.corr() if len(returns) >= 5 else pd.DataFrame()
+
+    price_chart = pd.DataFrame({"Date": prices.index})
+    if "SPY" in prices:
+        price_chart["SPY"] = prices["SPY"].ffill().values
+        price_chart["MM20"] = full_prices["SPY"].rolling(20, min_periods=8).mean().reindex(prices.index).values
+        price_chart["MM50"] = full_prices["SPY"].rolling(50, min_periods=18).mean().reindex(prices.index).values
+    vix_chart = pd.DataFrame({"Date": prices.index})
+    if "^VIX" in prices:
+        vix_chart["VIX"] = prices["^VIX"].values
+    if "SPY" in prices:
+        vix_chart["SPY"] = prices["SPY"].ffill().values
+    move_chart = pd.DataFrame({"Date": prices.index})
+    if "^MOVE" in prices:
+        move_chart["MOVE"] = prices["^MOVE"].values
+        move_chart["MM20"] = full_prices["^MOVE"].rolling(20, min_periods=8).mean().reindex(prices.index).values
+    if "SPY" in prices:
+        move_chart["SPY"] = prices["SPY"].ffill().values
+
+    style_chart = pd.DataFrame({"Date": prices.index})
+    if {"XLY", "XLP"}.issubset(full_prices.columns):
+        ratio = (full_prices["XLY"] / full_prices["XLP"]).replace([np.inf, -np.inf], np.nan)
+        style_chart["XLY/XLP"] = ratio.reindex(prices.index).values
+    if "SPY" in prices:
+        style_chart["SPY"] = prices["SPY"].ffill().values
+    if "XLY/XLP" in style_chart:
+        style_chart = style_chart.dropna(subset=["XLY/XLP"])
+
+    return {
+        "source_state": dict(SOURCE_STATE),
+        "updated_at": pd.Timestamp.now(),
+        "all_perf": all_perf,
+        "sector_perf": sector_perf,
+        "cross_perf": cross_perf,
+        "breadth": breadth,
+        "sector_state": sector_state,
+        "corr": corr,
+        "price_chart": price_chart,
+        "vix_chart": vix_chart,
+        "move_chart": move_chart,
+        "style_chart": style_chart,
+        "cds_chart": cds_chart,
+        "put_call_chart": pc_chart,
+        "put_call": pc_stats,
+        "kpis": {
+            "S&P 500": fmt_pct(spy),
+            "Nasdaq": fmt_pct(qqq),
+            "Small caps": fmt_pct(iwm),
+            "VIX": fmt_num(vix, 1),
+            "SPX OI P/C": fmt_num(pc_stats["ratio"], 2),
+            "Taux 10 ans": f"{fmt_num(tnx, 2)}%",
+            "Participation": fmt_pct(participation, 0, signed=False),
+        },
+        "summary": {
+            "regime": regime,
+            "note": note,
+            "tone": tone,
+            "best_sector": best_sector,
+            "worst_sector": worst_sector,
+            "leadership": leadership,
+            "period": period,
+        },
+    }
+
+
+class MarketIntelligenceDashboard(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("Market Intelligence")
+        screen_w = max(self.winfo_screenwidth(), 1280)
+        screen_h = max(self.winfo_screenheight(), 820)
+        width = min(1920, max(1280, int(screen_w * 0.96)))
+        height = min(1120, max(820, int(screen_h * 0.93)))
+        self.geometry(f"{width}x{height}+{max(0, (screen_w-width)//2)}+{max(0, (screen_h-height)//2)}")
+        self.minsize(1280, 820)
+        self.colors = {
+            "bg": "#f3f5f7", "panel": "#ffffff", "panel_alt": "#f8fafc", "panel_soft": "#f1f5f9",
+            "ink": "#0f172a", "ink_soft": "#1e293b", "muted": "#64748b", "muted_light": "#94a3b8",
+            "line": "#cbd5e1", "line_soft": "#e2e8f0", "grid": "#e7edf3", "grid_soft": "#eff3f7",
+            "gold": "#b7791f", "gold_bg": "#f7ecd5", "green": "#0f9f6e", "green_bg": "#ddf3ea",
+            "red": "#d64545", "red_bg": "#f8e3e3", "blue": "#2563eb", "blue_bg": "#e3ecff",
+        }
+        self.configure(bg=self.colors["bg"])
+        self.queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self.status = tk.StringVar(value="Prêt")
+        self.period = tk.StringVar(value="1 an")
+        self.spinner_job: Optional[str] = None
+        self.spinner_angle = 0
+        self.data: Optional[dict[str, Any]] = None
+        self.series_visibility: dict[str, bool] = {}
+        self._request_force_sources = False
+        self.regular_panel_height = 500
+        self.breadth_panel_height = 690
+        self.range_text = tk.StringVar(value="Plage calculée après chargement")
+        self.session_text = tk.StringVar(value="")
+        self._scroll_job: Optional[str] = None
+        self._scroll_target_y: Optional[float] = None
+        self._styles()
+        self._shell()
+        self.after(180, self.refresh)
+
+    def _styles(self) -> None:
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("Market.Treeview", background=self.colors["panel"], fieldbackground=self.colors["panel"], foreground=self.colors["ink"], borderwidth=0, rowheight=31, font=("Avenir Next", 10))
+        style.configure("Market.Treeview.Heading", background=self.colors["panel_alt"], foreground=self.colors["muted"], borderwidth=0, font=("Avenir Next", 10, "bold"))
+
+    def _shell(self) -> None:
+        self.page = tk.Frame(self, bg=self.colors["bg"])
+        self.page.pack(fill="both", expand=True)
+        self._header()
+        self._period_control(self.page).pack(fill="x", padx=20, pady=(0, 12))
+
+        self.kpi_grid = tk.Frame(self.page, bg=self.colors["bg"])
+        self.kpi_grid.pack(fill="x", padx=20, pady=(0, 11))
+        for col in range(7):
+            self.kpi_grid.grid_columnconfigure(col, weight=1, uniform="kpi")
+
+        self.footer = tk.Label(self.page, text="", bg=self.colors["bg"], fg=self.colors["muted_light"], font=("Avenir Next", 8))
+        self.footer.pack(side="bottom", fill="x", padx=20, pady=(4, 7))
+
+        # Zone centrale défilable : l'en-tête, les KPI et les contrôles restent visibles.
+        body_wrap = tk.Frame(self.page, bg=self.colors["bg"])
+        body_wrap.pack(fill="both", expand=True, padx=(18, 10), pady=(0, 2))
+        self.body_canvas = tk.Canvas(body_wrap, bg=self.colors["bg"], highlightthickness=0, borderwidth=0)
+        self.body_scrollbar = tk.Scrollbar(body_wrap, orient="vertical", command=self.body_canvas.yview, width=9)
+        self.body_canvas.configure(yscrollcommand=self.body_scrollbar.set)
+        self.body_canvas.pack(side="left", fill="both", expand=True)
+        self.body_scrollbar.pack(side="right", fill="y", padx=(5, 0))
+
+        self.body = tk.Frame(self.body_canvas, bg=self.colors["bg"])
+        self._body_window = self.body_canvas.create_window((0, 0), window=self.body, anchor="nw")
+        for col in range(2):
+            self.body.grid_columnconfigure(col, weight=1, uniform="main")
+
+        self.body.bind("<Configure>", self._sync_scroll_region)
+        self.body_canvas.bind("<Configure>", self._fit_body_width)
+        self.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.bind_all("<Button-4>", self._on_mousewheel)
+        self.bind_all("<Button-5>", self._on_mousewheel)
+
+    def _sync_scroll_region(self, _event: Optional[tk.Event] = None) -> None:
+        self.body_canvas.configure(scrollregion=self.body_canvas.bbox("all"))
+        bbox = self.body_canvas.bbox("all")
+        if bbox and self._scroll_target_y is not None:
+            max_top = max(0.0, float(bbox[3] - bbox[1] - self.body_canvas.winfo_height()))
+            self._scroll_target_y = min(max(self._scroll_target_y, 0.0), max_top)
+
+    def _fit_body_width(self, event: tk.Event) -> None:
+        self.body_canvas.itemconfigure(self._body_window, width=max(1, int(event.width)))
+
+    def _on_mousewheel(self, event: tk.Event) -> str | None:
+        if not hasattr(self, "body_canvas"):
+            return None
+        bbox = self.body_canvas.bbox("all")
+        if not bbox:
+            return None
+        total_h = float(bbox[3] - bbox[1])
+        view_h = float(self.body_canvas.winfo_height())
+        max_top = max(0.0, total_h - view_h)
+        if max_top <= 0:
+            return None
+
+        if getattr(event, "num", None) == 4:
+            pixels = -86.0
+        elif getattr(event, "num", None) == 5:
+            pixels = 86.0
+        else:
+            delta = float(getattr(event, "delta", 0) or 0)
+            if delta == 0:
+                return None
+            # Trackpad macOS : petits deltas continus. Souris classique : ±120.
+            pixels = -(delta * 3.2 if abs(delta) < 120 else (delta / 120.0) * 96.0)
+
+        current_top = float(self.body_canvas.yview()[0]) * total_h
+        base = current_top if self._scroll_target_y is None else self._scroll_target_y
+        self._scroll_target_y = min(max(base + pixels, 0.0), max_top)
+        if self._scroll_job is None:
+            self._animate_scroll()
+        return "break"
+
+    def _animate_scroll(self) -> None:
+        bbox = self.body_canvas.bbox("all")
+        if not bbox or self._scroll_target_y is None:
+            self._scroll_job = None
+            return
+        total_h = float(bbox[3] - bbox[1])
+        if total_h <= 0:
+            self._scroll_job = None
+            return
+        current_top = float(self.body_canvas.yview()[0]) * total_h
+        diff = self._scroll_target_y - current_top
+        if abs(diff) < 0.8:
+            self.body_canvas.yview_moveto(self._scroll_target_y / total_h)
+            self._scroll_target_y = None
+            self._scroll_job = None
+            return
+        next_top = current_top + diff * 0.24
+        self.body_canvas.yview_moveto(next_top / total_h)
+        self._scroll_job = self.after(16, self._animate_scroll)
+
+    def _header(self) -> None:
+        head = tk.Frame(self.page, bg=self.colors["bg"])
+        head.pack(fill="x", padx=20, pady=(16, 10))
+        left = tk.Frame(head, bg=self.colors["bg"])
+        left.pack(side="left", fill="x", expand=True)
+        tk.Label(left, text="MARKET INTELLIGENCE", bg=self.colors["bg"], fg=self.colors["blue"], font=("Avenir Next", 10, "bold")).pack(anchor="w")
+        tk.Label(left, text="Tableau de marché", bg=self.colors["bg"], fg=self.colors["ink"], font=("Avenir Next", 27, "bold")).pack(anchor="w")
+        tk.Label(left, text="Régime · volatilité · options · participation · stress macro", bg=self.colors["bg"], fg=self.colors["muted"], font=("Avenir Next", 11)).pack(anchor="w")
+
+        right = tk.Frame(head, bg=self.colors["bg"])
+        right.pack(side="right", anchor="ne", pady=(8, 0))
+        self.spinner = tk.Canvas(right, width=26, height=26, bg=self.colors["bg"], highlightthickness=0)
+        self.spinner.pack(side="left", padx=(0, 8), pady=(3, 0))
+        tk.Label(right, textvariable=self.status, bg=self.colors["bg"], fg=self.colors["muted"], font=("Avenir Next", 10, "bold")).pack(side="left", padx=(0, 12), pady=(5, 0))
+        tk.Button(right, text="Actualiser les données", command=lambda: self.refresh(force_sources=True), bg=self.colors["ink"], fg="white", activebackground=self.colors["ink_soft"], activeforeground="white", borderwidth=0, padx=18, pady=10, cursor="hand2", font=("Avenir Next", 10, "bold")).pack(side="left")
+
+    def refresh(self, force_sources: bool = False) -> None:
+        period_value = self.period.get()
+        self.status.set("Mise à jour")
+        self._start_spinner()
+        self._clear(self.body)
+        self._clear(self.kpi_grid)
+        self._loading()
+        threading.Thread(target=self._worker, args=(period_value, force_sources), daemon=True).start()
+        self.after(100, self._poll)
+
+    def _worker(self, period_value: str, force_sources: bool) -> None:
+        try:
+            self.queue.put(("ok", build_market_data(period_value, force_sources=force_sources)))
+        except Exception as exc:
+            self.queue.put(("error", exc))
+
+    def _poll(self) -> None:
+        try:
+            state, payload = self.queue.get_nowait()
+        except queue.Empty:
+            self.after(100, self._poll)
+            return
+        self._stop_spinner()
+        self._clear(self.body)
+        self._clear(self.kpi_grid)
+        if state == "error":
+            self.status.set("Erreur")
+            self._error(str(payload))
+            return
+        self.status.set("À jour")
+    
