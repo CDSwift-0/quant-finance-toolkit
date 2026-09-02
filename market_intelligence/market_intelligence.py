@@ -314,4 +314,275 @@ def put_call_context(pc_full: pd.DataFrame, pc_period: pd.DataFrame) -> dict[str
 
     if pd.isna(ratio):
         regime = "Signal indisponible"
-        note = "Le ratio Put/Call basé sur l'open interest SPX n'a pas pu être calculé
+        note = "Le ratio Put/Call basé sur l'open interest SPX n'a pas pu être calculé pour l'instant."
+        tone = "muted"
+    elif percentile >= 88 or ratio >= 2.15:
+        regime = "Protection élevée"
+        note = "L'open interest put domine nettement : le positionnement options reste défensif sur le S&P 500."
+        tone = "red"
+    elif percentile <= 15 or ratio <= 1.45:
+        regime = "Complacence relative"
+        note = "L'open interest call pèse davantage que d'habitude : le marché montre moins de demande structurelle de protection."
+        tone = "gold"
+    else:
+        regime = "Équilibre SPX"
+        note = "Le ratio OI reste dans une zone intermédiaire : le signal options ne montre pas d'excès clair."
+        tone = "blue"
+
+    return {
+        "ratio": ratio,
+        "puts": puts,
+        "calls": calls,
+        "open_interest": open_interest,
+        "ma20": ma20,
+        "percentile": percentile,
+        "regime": regime,
+        "note": note,
+        "tone": tone,
+    }
+
+
+def fallback_prices(tickers: list[str]) -> pd.DataFrame:
+    rng = np.random.default_rng(11)
+    dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=2520, freq="B")
+    data: dict[str, np.ndarray] = {}
+    for index, ticker in enumerate(tickers):
+        if ticker == "^VIX":
+            values = np.clip(18 + rng.normal(0, 1.2, len(dates)).cumsum() * 0.08, 11, 36)
+        elif ticker == "^TNX":
+            values = np.clip(42 + rng.normal(0, 0.55, len(dates)).cumsum() * 0.03, 32, 55)
+        else:
+            drift = 0.00022 + (index % 4) * 0.00005
+            vol = 0.009 + (index % 6) * 0.0016
+            values = 100 * np.exp(np.cumsum(rng.normal(drift, vol, len(dates))))
+        data[ticker] = values
+    return pd.DataFrame(data, index=dates)
+
+
+def fallback_us_cds_data(dates: pd.Index) -> pd.DataFrame:
+    rng = np.random.default_rng(41)
+    clean_dates = pd.to_datetime(pd.Series(dates), errors="coerce").dropna()
+    if clean_dates.empty:
+        clean_dates = pd.Series(pd.date_range(end=pd.Timestamp.today().normalize(), periods=2520, freq="B"))
+    clean_dates = clean_dates.tail(2520).reset_index(drop=True)
+    values = np.clip(22 + np.cumsum(rng.normal(0, 0.12, len(clean_dates))), 8, 75)
+    return pd.DataFrame({"Date": clean_dates, "US_CDS_5Y": values})
+
+
+def slice_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    return df.tail(PERIODS.get(period, 63)).copy()
+
+
+def fmt_pct(value: Any, digits: int = 1, signed: bool = True) -> str:
+    try:
+        if pd.isna(value):
+            return "n.d."
+        prefix = "+" if signed and float(value) > 0 else ""
+        return f"{prefix}{float(value):.{digits}f}%"
+    except Exception:
+        return "n.d."
+
+
+def fmt_num(value: Any, digits: int = 2) -> str:
+    try:
+        if pd.isna(value):
+            return "n.d."
+        return f"{float(value):.{digits}f}"
+    except Exception:
+        return "n.d."
+
+
+def fmt_int(value: Any) -> str:
+    try:
+        if pd.isna(value):
+            return "n.d."
+        return f"{float(value):,.0f}".replace(",", " ")
+    except Exception:
+        return "n.d."
+
+
+def perf(series: Optional[pd.Series]) -> float:
+    if series is None:
+        return float("nan")
+    clean = pd.to_numeric(series, errors="coerce").dropna()
+    if len(clean) < 2 or clean.iloc[0] == 0:
+        return float("nan")
+    return float((clean.iloc[-1] / clean.iloc[0] - 1) * 100)
+
+
+def last(series: Optional[pd.Series]) -> float:
+    if series is None:
+        return float("nan")
+    clean = pd.to_numeric(series, errors="coerce").dropna()
+    return float(clean.iloc[-1]) if not clean.empty else float("nan")
+
+
+def performance_frame(prices: pd.DataFrame, labels: dict[str, str]) -> pd.DataFrame:
+    rows = []
+    for ticker, label in labels.items():
+        if ticker in prices:
+            value = perf(prices[ticker])
+            if not pd.isna(value):
+                rows.append({"Ticker": ticker, "Nom": label, "Performance": value, "Valeur": last(prices[ticker])})
+    return pd.DataFrame(rows)
+
+
+def compute_breadth(full_prices: pd.DataFrame) -> pd.DataFrame:
+    cols = [ticker for ticker in SECTORS if ticker in full_prices.columns]
+    if not cols:
+        return pd.DataFrame(columns=["Date", "Breadth", "RawAbove", "AvgDistance"])
+    sector_prices = full_prices[cols].dropna(how="all")
+    ma50 = sector_prices.rolling(50, min_periods=40).mean()
+    distance = (sector_prices / ma50 - 1) * 100
+    valid_count = distance.notna().sum(axis=1)
+    valid_safe = valid_count.replace(0, np.nan)
+    raw_above = sector_prices.gt(ma50).where(distance.notna()).sum(axis=1) / valid_safe * 100
+    score = 100 / (1 + np.exp(-(distance / 3.2)))
+    breadth = score.mean(axis=1).ewm(span=8, adjust=False, min_periods=3).mean()
+    avg_distance = distance.mean(axis=1)
+    data = pd.DataFrame(
+        {
+            "Date": sector_prices.index,
+            "Breadth": breadth.clip(lower=0, upper=100).values,
+            "RawAbove": raw_above.clip(lower=0, upper=100).values,
+            "AvgDistance": avg_distance.values,
+        }
+    )
+    valid_mask = valid_count.to_numpy() >= max(5, int(len(cols) * 0.6))
+    return data.loc[valid_mask].dropna(subset=["Breadth"])
+
+
+def sector_mm50_state(full_prices: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for ticker, label in SECTORS.items():
+        if ticker not in full_prices.columns:
+            continue
+        series = pd.to_numeric(full_prices[ticker], errors="coerce").dropna()
+        if series.empty:
+            continue
+        ma50 = series.rolling(50, min_periods=18).mean()
+        latest = float(series.iloc[-1])
+        latest_ma = float(ma50.iloc[-1]) if not pd.isna(ma50.iloc[-1]) else float("nan")
+        if pd.isna(latest_ma) or latest_ma == 0:
+            continue
+        distance = (latest / latest_ma - 1) * 100
+        rows.append(
+            {
+                "Ticker": ticker,
+                "Nom": label,
+                "Close": latest,
+                "MM50": latest_ma,
+                "Distance": distance,
+                "Above": latest >= latest_ma,
+            }
+        )
+    if not rows:
+        return pd.DataFrame(columns=["Ticker", "Nom", "Close", "MM50", "Distance", "Above"])
+    return pd.DataFrame(rows).sort_values("Distance", ascending=False)
+
+
+def load_source_bundle(force: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Load independent sources in parallel and reuse them during period changes."""
+    global _RUNTIME_BUNDLE, _RUNTIME_BUNDLE_AT
+    now = time.time()
+    with _RUNTIME_BUNDLE_LOCK:
+        if not force and _RUNTIME_BUNDLE is not None and now - _RUNTIME_BUNDLE_AT <= RUNTIME_BUNDLE_TTL:
+            prices, put_call, cds = _RUNTIME_BUNDLE
+            return prices.copy(), put_call.copy(), cds.copy()
+
+    tickers = list(ASSETS.keys())
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="market-data") as pool:
+        future_prices = pool.submit(download_prices, tickers)
+        future_put_call = pool.submit(fetch_put_call_data)
+        future_cds = pool.submit(fetch_us_cds_data)
+        prices = future_prices.result()
+        put_call = future_put_call.result()
+        cds = future_cds.result()
+
+    with _RUNTIME_BUNDLE_LOCK:
+        _RUNTIME_BUNDLE = (prices.copy(), put_call.copy(), cds.copy())
+        _RUNTIME_BUNDLE_AT = time.time()
+    return prices, put_call, cds
+
+
+def build_market_data(period: str, force_sources: bool = False) -> dict[str, Any]:
+    full_prices, pc_full, cds_full = load_source_bundle(force=force_sources)
+    prices = slice_period(full_prices, period)
+    if pc_full.empty:
+        SOURCE_STATE["put_call"] = "synthetic fallback"
+        pc_full = fallback_put_call_data(full_prices.index)
+    pc_full["Date"] = pd.to_datetime(pc_full["Date"], errors="coerce")
+    pc_full = pc_full.dropna(subset=["Date"]).sort_values("Date")
+    pc_chart = slice_period(pc_full.set_index("Date"), period).reset_index()
+    pc_chart["MM20"] = pc_full.set_index("Date")["Ratio"].rolling(20, min_periods=8).mean().reindex(pc_chart["Date"]).values
+    if "SPY" in full_prices:
+        pc_chart["SPY"] = full_prices["SPY"].ffill().reindex(pc_chart["Date"], method="ffill").values
+    pc_stats = put_call_context(pc_full, pc_chart)
+    sector_perf = performance_frame(prices, SECTORS)
+    cross_perf = performance_frame(prices, CROSS_ASSETS)
+    labels = {ticker: name for ticker, (name, _cat) in ASSETS.items() if not ticker.startswith("^")}
+    all_perf = performance_frame(prices, labels)
+    breadth = slice_period(compute_breadth(full_prices).set_index("Date"), period).reset_index()
+    if "SPY" in full_prices and not breadth.empty:
+        bench = pd.to_numeric(full_prices["SPY"].ffill().reindex(breadth["Date"], method="ffill"), errors="coerce")
+        if bench.notna().sum() >= 2 and not math.isclose(float(bench.max()), float(bench.min())):
+            breadth["Benchmark"] = ((bench - bench.min()) / (bench.max() - bench.min()) * 100).values
+    sector_state = sector_mm50_state(full_prices)
+
+    if cds_full.empty:
+        SOURCE_STATE["cds"] = "synthetic fallback"
+        cds_full = fallback_us_cds_data(full_prices.index)
+    cds_full["Date"] = pd.to_datetime(cds_full["Date"], errors="coerce")
+    cds_full = cds_full.dropna(subset=["Date"]).sort_values("Date")
+    cds_chart = slice_period(cds_full.set_index("Date"), period).reset_index()
+    if "SPY" in full_prices and not cds_chart.empty:
+        cds_chart["SPY"] = full_prices["SPY"].ffill().reindex(cds_chart["Date"], method="ffill").values
+    cds_cols = [col for col in ["US_CDS_5Y", "SPY"] if col in cds_chart]
+    if cds_cols:
+        cds_chart = cds_chart.dropna(subset=cds_cols, how="all")
+
+    spy = perf(prices.get("SPY"))
+    qqq = perf(prices.get("QQQ"))
+    iwm = perf(prices.get("IWM"))
+    vix = last(full_prices.get("^VIX"))
+    tnx = last(full_prices.get("^TNX"))
+    if not pd.isna(tnx) and tnx > 15:
+        tnx = tnx / 10
+
+    participation = last(breadth.get("Breadth")) if not breadth.empty else float("nan")
+    indexed = sector_perf.set_index("Ticker") if not sector_perf.empty else pd.DataFrame()
+    cyc = indexed.reindex(CYCLICAL)["Performance"].mean() if not indexed.empty else float("nan")
+    defensive = indexed.reindex(DEFENSIVE)["Performance"].mean() if not indexed.empty else float("nan")
+    leadership = float(cyc - defensive) if not pd.isna(cyc) and not pd.isna(defensive) else float("nan")
+
+    best_sector = "n.d."
+    worst_sector = "n.d."
+    if not sector_perf.empty:
+        best = sector_perf.sort_values("Performance", ascending=False).iloc[0]
+        worst = sector_perf.sort_values("Performance", ascending=True).iloc[0]
+        best_sector = f"{best['Nom']} {fmt_pct(best['Performance'])}"
+        worst_sector = f"{worst['Nom']} {fmt_pct(worst['Performance'])}"
+
+    if not pd.isna(vix) and (vix >= 25 or (not pd.isna(spy) and spy <= -4)):
+        regime = "Risque élevé"
+        note = "La volatilité impose une lecture défensive. Les rebonds doivent être confirmés par la participation."
+        tone = "red"
+    elif not pd.isna(spy) and spy > 2 and not pd.isna(participation) and participation >= 55 and (pd.isna(vix) or vix < 20):
+        regime = "Risk-on discipliné"
+        note = "Le marché reste constructif : performance positive, volatilité contenue et participation correcte."
+        tone = "green"
+    elif not pd.isna(participation) and participation < 45:
+        regime = "Marché sélectif"
+        note = "La largeur manque de force. Les leaders comptent davantage que l'exposition générale."
+        tone = "gold"
+    elif not pd.isna(leadership) and leadership < -2:
+        regime = "Rotation défensive"
+        note = "Les secteurs défensifs reprennent du poids. L'appétit pour le risque est moins évident."
+        tone = "gold"
+    else:
+        regime = "Équilibre à confirmer"
+        note = "Les signaux sont mixtes. La volatilité et la participation doivent confirmer la direction."
+        tone = "blue"
+
+    corr_cols = [ticker for ticker in CROSS_ASSETS if ticker in prices.columns]
+    returns = prices[corr_cols].pct_chang
