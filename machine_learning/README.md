@@ -1,11 +1,21 @@
-# Market Regime Model
+# Machine Learning
 
-Unsupervised market-regime dashboard based on a Gaussian mixture model. The feature set includes returns, realized volatility, relative volume, RSI, momentum, intraperiod range and drawdown. Historical regime transitions are then used to build short-horizon regime probability estimates.
+This directory is reserved for machine-learning applications to financial-market research.
 
-Run:
+## Current status
 
-```bash
-python ml.py
-```
+No executable model or Python script is currently committed to this directory.
 
-The model is exploratory and should not be interpreted as a standalone forecasting system.
+The folder should therefore be considered a placeholder in the current repository snapshot.
+
+## Intended scope
+
+Potential research areas include:
+
+- unsupervised market-regime classification;
+- clustering of market states;
+- probabilistic regime transitions;
+- feature engineering from returns, volatility, momentum, volume, and drawdowns;
+- supervised or unsupervised forecasting experiments.
+
+Any model added here should document its training data, feature set, validation methodology, outputs, and limitations.
